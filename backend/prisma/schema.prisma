@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN // manages all hospitals, not tied to any single one
+  ADMIN       // manages one hospital: its doctors, staff, and referrals
+  RECEPTION   // works the front desk of one hospital
+  STAFF       // custom role (e.g. Accountant) — actual capabilities come from CustomRole.permissions
+}
+
+enum ReferralStatus {
+  PENDING     // patient details submitted via QR, not yet arrived
+  ARRIVED     // reserved for future use
+  CREDITED    // reception matched & confirmed patient arrival, doctor credited
+  REJECTED    // reception determined this wasn't a valid match
+}
+
+enum PatientGender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model Hospital {
+  id         String   @id @default(uuid())
+  name       String
+  branchName String?
+  address    String?
+  createdAt  DateTime @default(now())
+
+  staff       StaffUser[]
+  doctors     Doctor[]
+  customRoles CustomRole[]
+}
+
+// A hospital-defined role (e.g. "Accountant") with a specific, admin-configurable set of
+// permissions. Lets admins add new kinds of staff access without any code changes.
+model CustomRole {
+  id          String   @id @default(uuid())
+  hospitalId  String
+  hospital    Hospital @relation(fields: [hospitalId], references: [id])
+  name        String
+  // array of permission strings, e.g. ["export_reports", "view_referrals"]
+  permissions Json
+  createdAt   DateTime @default(now())
+
+  staff StaffUser[]
+}
+
+model StaffUser {
+  id           String      @id @default(uuid())
+  name         String
+  email        String      @unique
+  passwordHash String
+  role         Role
+  // null only for SUPER_ADMIN, who isn't scoped to a single hospital
+  hospitalId   String?
+  hospital     Hospital?   @relation(fields: [hospitalId], references: [id])
+  // set only when role = STAFF; defines this account's actual permissions
+  customRoleId String?
+  customRole   CustomRole? @relation(fields: [customRoleId], references: [id])
+  createdAt    DateTime    @default(now())
+}
+
+model Doctor {
+  id            String   @id @default(uuid())
+  hospitalId    String
+  hospital      Hospital @relation(fields: [hospitalId], references: [id])
+
+  name          String
+  specialty     String?
+  phone         String
+  email         String?
+  clinicName    String?
+  city          String?
+  uniqueCode    String   @unique @default(uuid())
+  // fixed credit amount (in INR) given per successful referral; admin-configurable per doctor
+  creditAmount  Decimal  @default(0) @db.Decimal(10, 2)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  referrals     Referral[]
+  transactions  CreditTransaction[]
+}
+
+model Referral {
+  id              String         @id @default(uuid())
+  doctor          Doctor         @relation(fields: [doctorId], references: [id])
+  doctorId        String
+
+  patientName     String
+  patientAge      Int
+  patientPhone    String?
+  patientGender   PatientGender?
+
+  // location captured at the moment the doctor's QR was scanned
+  scanLatitude    Float?
+  scanLongitude   Float?
+  scanAddress     String?        // reverse-geocoded, human readable
+  scanAccuracyM   Float?         // GPS accuracy in meters, if available
+
+  status          ReferralStatus @default(PENDING)
+  matchedByUserId String?        // reception/admin staff who marked arrival
+  arrivedAt       DateTime?
+  rejectedReason  String?
+
+  createdAt       DateTime       @default(now())
+
+  transaction     CreditTransaction?
+}
+
+model CreditTransaction {
+  id               String    @id @default(uuid())
+  doctor           Doctor    @relation(fields: [doctorId], references: [id])
+  doctorId         String
+  referral         Referral  @relation(fields: [referralId], references: [id])
+  referralId       String    @unique
+  amount           Decimal   @db.Decimal(10, 2)
+  createdAt        DateTime  @default(now())
+  note             String?
+
+  // A credit is created the moment reception confirms a patient's arrival, but that
+  // only means the doctor is OWED the amount — it isn't paid out yet. An accountant
+  // (or admin) later marks it "redeemed" once the actual payout happens, which is
+  // what separates "pending credits" from "total earned" on the doctor's dashboard.
+  redeemed         Boolean   @default(false)
+  redeemedAt       DateTime?
+  redeemedByUserId String?
+  paymentMethod    String?
+  referenceNumber  String?
+  remarks          String?
+}

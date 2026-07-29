@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+.venv/
+venv/
+env/
+
+# FastAPI
+.pytest_cache/
+
+# Environment
+.env
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Vite
+dist/
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
