@@ -21,3 +21,11 @@ export function startOfIstDay(daysAgo = 0) {
   const istMidnightUtcMs = Date.UTC(y, m, d - daysAgo, 0, 0, 0) - IST_OFFSET_MS;
   return new Date(istMidnightUtcMs);
 }
+
+// The UTC instant range [start, end) covering one IST calendar day, given a
+// "YYYY-MM-DD" string as typed into a date picker.
+export function istDayBounds(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const startUtcMs = Date.UTC(y, m - 1, d, 0, 0, 0) - IST_OFFSET_MS;
+  return { start: new Date(startUtcMs), end: new Date(startUtcMs + 24 * 60 * 60 * 1000) };
+}

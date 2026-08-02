@@ -56,10 +56,10 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
     byDoctor[key].total += Number(t.amount);
     byDoctor[key].count += 1;
   }
-  const topDoctors = Object.values(byDoctor).sort((a, b) => b.total - a.total).slice(0, 5);
+  const topDoctors = Object.values(byDoctor).sort((a, b) => b.total - a.total).slice(0, 15);
 
   const recentReferrals = referrals.slice(0, 30);
-  const pendingRedemptions = transactions.filter((t) => !t.redeemed).slice(0, 10);
+  const pendingRedemptions = transactions.filter((t) => !t.redeemed).slice(0, 30);
 
   res.json({
     kpis: {

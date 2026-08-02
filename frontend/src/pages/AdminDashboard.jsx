@@ -10,6 +10,7 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import api from "../api/client";
 import { formatDate, formatDateTime, formatShortDate } from "../utils/date";
 import Sidebar from "../components/Sidebar";
+import DateRangePicker from "../components/DateRangePicker";
 import Avatar from "../components/Avatar";
 import EmptyState from "../components/EmptyState";
 import DropdownMenu from "../components/DropdownMenu";
@@ -46,7 +47,8 @@ export default function AdminDashboard() {
   const [referralTab, setReferralTab] = useState("PENDING");
   const [referralSearch, setReferralSearch] = useState("");
   const [referralDoctorId, setReferralDoctorId] = useState("");
-  const [referralRange, setReferralRange] = useState("all");
+  const [referralDateFrom, setReferralDateFrom] = useState("");
+  const [referralDateTo, setReferralDateTo] = useState("");
 
   const [dashboardData, setDashboardData] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -59,6 +61,8 @@ export default function AdminDashboard() {
   const [qrLoadingId, setQrLoadingId] = useState(null);
 
   const [doctorSearch, setDoctorSearch] = useState("");
+  const [doctorDateFrom, setDoctorDateFrom] = useState("");
+  const [doctorDateTo, setDoctorDateTo] = useState("");
   const [doctorStatusFilter, setDoctorStatusFilter] = useState("all");
   const [sortKey, setSortKey] = useState("createdAt");
   const [sortDir, setSortDir] = useState("desc");
@@ -109,15 +113,16 @@ export default function AdminDashboard() {
         status: referralTab || undefined,
         search: referralSearch || undefined,
         doctorId: referralDoctorId || undefined,
-        range: referralRange !== "all" ? referralRange : undefined,
+        from: referralDateFrom || undefined,
+        to: referralDateTo || undefined,
       },
     });
     setReferrals(data);
   }
 
   useEffect(() => { loadDoctorsAndStaff(); loadDashboard(); }, []);
-  useEffect(() => { if (activeTab === "All Referrals") loadReferrals(); }, [activeTab, referralTab, referralDoctorId, referralRange]);
-  useEffect(() => { setDoctorPage(1); }, [doctorSearch, doctorStatusFilter]);
+  useEffect(() => { if (activeTab === "All Referrals") loadReferrals(); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo]);
+  useEffect(() => { setDoctorPage(1); }, [doctorSearch, doctorStatusFilter, doctorDateFrom, doctorDateTo]);
   useEffect(() => { setRecentPage(1); }, [dashboardData]);
 
   async function handleCreateDoctor(e) {
@@ -307,7 +312,8 @@ export default function AdminDashboard() {
           status: referralTab || undefined,
           search: referralSearch || undefined,
           doctorId: referralDoctorId || undefined,
-          range: referralRange !== "all" ? referralRange : undefined,
+          from: referralDateFrom || undefined,
+        to: referralDateTo || undefined,
         },
         responseType: "blob",
       });
@@ -339,6 +345,8 @@ export default function AdminDashboard() {
     let list = doctors.filter((d) => {
       if (doctorStatusFilter === "active" && !d.active) return false;
       if (doctorStatusFilter === "inactive" && d.active) return false;
+      if (doctorDateFrom && (!d.lastReferralAt || d.lastReferralAt.slice(0, 10) < doctorDateFrom)) return false;
+      if (doctorDateTo && (!d.lastReferralAt || d.lastReferralAt.slice(0, 10) > doctorDateTo)) return false;
       if (doctorSearch) {
         const q = doctorSearch.toLowerCase();
         return d.name.toLowerCase().includes(q) || (d.clinicName || "").toLowerCase().includes(q) || (d.specialty || "").toLowerCase().includes(q);
@@ -354,7 +362,7 @@ export default function AdminDashboard() {
       return 0;
     });
     return list;
-  }, [doctors, doctorSearch, doctorStatusFilter, sortKey, sortDir]);
+  }, [doctors, doctorSearch, doctorStatusFilter, doctorDateFrom, doctorDateTo, sortKey, sortDir]);
 
   const doctorPageCount = Math.max(1, Math.ceil(filteredSortedDoctors.length / DOCTORS_PAGE_SIZE));
   const recentPageCount = Math.max(1, Math.ceil((dashboardData?.recentReferrals?.length || 0) / RECENT_PAGE_SIZE));
@@ -465,16 +473,18 @@ export default function AdminDashboard() {
                     {dashboardData.topDoctors.length === 0 ? (
                       <EmptyState icon={Award} title="No credited referrals yet" />
                     ) : (
-                      dashboardData.topDoctors.map((d, i) => (
-                        <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < dashboardData.topDoctors.length - 1 ? "1px solid var(--border)" : "none" }}>
-                          <Avatar name={d.name} size={30} />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>{d.name}</div>
-                            <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{d.clinicName || "—"} · {d.count} credit{d.count !== 1 ? "s" : ""}</div>
+                      <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                        {dashboardData.topDoctors.map((d, i) => (
+                          <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: i < dashboardData.topDoctors.length - 1 ? "1px solid var(--border)" : "none" }}>
+                            <Avatar name={d.name} size={30} />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 14 }}>{d.name}</div>
+                              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{d.clinicName || "—"} · {d.count} credit{d.count !== 1 ? "s" : ""}</div>
+                            </div>
+                            <div style={{ fontWeight: 700, color: "var(--teal-700)" }}>₹{d.total.toFixed(2)}</div>
                           </div>
-                          <div style={{ fontWeight: 700, color: "var(--teal-700)" }}>₹{d.total.toFixed(2)}</div>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     )}
                   </div>
 
@@ -486,16 +496,18 @@ export default function AdminDashboard() {
                     {dashboardData.pendingRedemptions.length === 0 ? (
                       <EmptyState icon={CheckCircle2} title="All caught up" subtitle="No unpaid credits right now" />
                     ) : (
-                      dashboardData.pendingRedemptions.map((t, i) => (
-                        <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < dashboardData.pendingRedemptions.length - 1 ? "1px solid var(--border)" : "none" }}>
-                          <Avatar name={t.doctor.name} size={30} />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14 }}>{t.doctor.name}</div>
-                            <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{t.referral?.patientName || "—"} · {formatDateTime(t.createdAt)}</div>
+                      <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                        {dashboardData.pendingRedemptions.map((t, i) => (
+                          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: i < dashboardData.pendingRedemptions.length - 1 ? "1px solid var(--border)" : "none" }}>
+                            <Avatar name={t.doctor.name} size={30} />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 14 }}>{t.doctor.name}</div>
+                              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{t.referral?.patientName || "—"} · {formatDateTime(t.createdAt)}</div>
+                            </div>
+                            <div style={{ fontWeight: 700, color: "#b45309" }}>₹{Number(t.amount).toFixed(2)}</div>
                           </div>
-                          <div style={{ fontWeight: 700, color: "#b45309" }}>₹{Number(t.amount).toFixed(2)}</div>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -589,12 +601,15 @@ export default function AdminDashboard() {
               </form>
             )}
 
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 16 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 16, alignItems: "flex-end" }}>
               <div style={{ flex: 2, minWidth: 220 }}>
                 <label>Search doctors</label>
-                <div style={{ position: "relative" }}>
-                  <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--ink-soft)" }} />
-                  <input style={{ paddingLeft: 34 }} value={doctorSearch} onChange={(e) => setDoctorSearch(e.target.value)} placeholder="Name, clinic, or specialty…" />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ position: "relative", flex: 1 }}>
+                    <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--ink-soft)" }} />
+                    <input style={{ paddingLeft: 34 }} value={doctorSearch} onChange={(e) => setDoctorSearch(e.target.value)} placeholder="Name, clinic, or specialty…" />
+                  </div>
+                  <button style={{ width: "auto", padding: "11px 16px" }} onClick={() => setDoctorPage(1)}><Search size={15} />Search</button>
                 </div>
               </div>
               <div style={{ flex: 1, minWidth: 160 }}>
@@ -605,6 +620,11 @@ export default function AdminDashboard() {
                   <option value="inactive">Inactive</option>
                 </select>
               </div>
+            </div>
+
+            <div style={{ marginBottom: -8 }}>
+              <DateRangePicker from={doctorDateFrom} to={doctorDateTo} onChange={({ from, to }) => { setDoctorDateFrom(from); setDoctorDateTo(to); }} />
+              <p style={{ color: "var(--ink-soft)", fontSize: 12, marginTop: -12 }}>Filters by each doctor's most recent referral date.</p>
             </div>
 
             {filteredSortedDoctors.length === 0 ? (
@@ -725,7 +745,7 @@ export default function AdminDashboard() {
                         <Fragment key={r.id}>
                           <tr>
                             <td>{r.name}</td>
-                            <td>{r.permissions.map((p) => PERMISSION_LABELS[p] || p).join(", ")}</td>
+                            <td style={{ maxWidth: 320, whiteSpace: "normal" }}>{r.permissions.map((p) => PERMISSION_LABELS[p] || p).join(", ")}</td>
                             <td>
                               <button className="secondary" style={{ width: "auto", padding: "4px 10px" }} onClick={() => setExpandedRoleId(expandedRoleId === r.id ? null : r.id)}>
                                 {r.staffCount} {expandedRoleId === r.id ? "▲" : "▼"}
@@ -839,8 +859,8 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-              <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+              <div style={{ flex: 1, minWidth: 200, maxWidth: 360 }}>
                 <label>Doctor</label>
                 <select value={referralDoctorId} onChange={(e) => setReferralDoctorId(e.target.value)}>
                   <option value="">All doctors</option>
@@ -849,17 +869,9 @@ export default function AdminDashboard() {
                   ))}
                 </select>
               </div>
-              <div style={{ flex: 1, minWidth: 180 }}>
-                <label>Date range</label>
-                <select value={referralRange} onChange={(e) => setReferralRange(e.target.value)}>
-                  <option value="all">All time</option>
-                  <option value="today">Today</option>
-                  <option value="7d">Last 7 days</option>
-                  <option value="30d">Last 30 days</option>
-                  <option value="90d">Last 3 months</option>
-                </select>
-              </div>
             </div>
+            <DateRangePicker from={referralDateFrom} to={referralDateTo} onChange={({ from, to }) => { setReferralDateFrom(from); setReferralDateTo(to); }} />
+
 
             <label>Search by patient name or phone</label>
             <div style={{ display: "flex", gap: 8 }}>

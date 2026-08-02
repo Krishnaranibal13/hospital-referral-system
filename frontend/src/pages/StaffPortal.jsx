@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../api/client";
 import { formatDate } from "../utils/date";
 import RedeemModal from "../components/RedeemModal";
+import DateRangePicker from "../components/DateRangePicker";
 
 const PAGE_SIZE = 10;
 
@@ -28,7 +29,8 @@ export default function StaffPortal() {
   const [tab, setTab] = useState("PENDING");
   const [search, setSearch] = useState("");
   const [doctorId, setDoctorId] = useState("");
-  const [range, setRange] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -44,7 +46,8 @@ export default function StaffPortal() {
           status: tab || undefined,
           search: search || undefined,
           doctorId: doctorId || undefined,
-          range: range !== "all" ? range : undefined,
+          from: dateFrom || undefined,
+          to: dateTo || undefined,
         },
       });
       setReferrals(data);
@@ -63,8 +66,8 @@ export default function StaffPortal() {
   }
 
   useEffect(() => { loadDoctors(); }, []);
-  useEffect(() => { load(); }, [tab, doctorId, range]);
-  useEffect(() => { setPage(1); }, [tab, doctorId, range, referrals.length]);
+  useEffect(() => { load(); }, [tab, doctorId, dateFrom, dateTo]);
+  useEffect(() => { setPage(1); }, [tab, doctorId, dateFrom, dateTo, referrals.length]);
 
   async function markArrived(referral) {
     setMessage("");
@@ -116,7 +119,8 @@ export default function StaffPortal() {
           status: tab || undefined,
           search: search || undefined,
           doctorId: doctorId || undefined,
-          range: range !== "all" ? range : undefined,
+          from: dateFrom || undefined,
+          to: dateTo || undefined,
         },
         responseType: "blob",
       });
@@ -171,7 +175,7 @@ export default function StaffPortal() {
           <div className="card" style={{ marginBottom: 20 }}>
             <h3 style={{ marginTop: 0 }}>Filters</h3>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ flex: 1, minWidth: 200, maxWidth: 360 }}>
                 <label>Doctor</label>
                 <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
                   <option value="">All doctors</option>
@@ -180,17 +184,8 @@ export default function StaffPortal() {
                   ))}
                 </select>
               </div>
-              <div style={{ flex: 1, minWidth: 180 }}>
-                <label>Date range</label>
-                <select value={range} onChange={(e) => setRange(e.target.value)}>
-                  <option value="all">All time</option>
-                  <option value="today">Today</option>
-                  <option value="7d">Last 7 days</option>
-                  <option value="30d">Last 30 days</option>
-                  <option value="90d">Last 3 months</option>
-                </select>
-              </div>
             </div>
+            <DateRangePicker from={dateFrom} to={dateTo} onChange={({ from, to }) => { setDateFrom(from); setDateTo(to); }} />
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
               {canExport && (

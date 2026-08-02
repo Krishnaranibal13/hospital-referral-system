@@ -5,7 +5,7 @@ import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
-import { startOfIstDay } from "../utils/istDate.js";
+import { startOfIstDay, istDayBounds } from "../utils/istDate.js";
 import { formatDate, formatDateTime } from "../utils/formatDate.js";
 
 const router = express.Router();
@@ -47,7 +47,7 @@ async function reverseGeocode(lat, lon) {
 // Shared filter builder used by the list view and both export endpoints, so exports
 // always match whatever the admin currently has filtered/searched for on screen.
 function buildWhere(req) {
-  const { search, status, doctorId, range } = req.query;
+  const { search, status, doctorId, range, from: fromDate, to: toDate } = req.query;
   const where = { doctor: { hospitalId: req.user.hospitalId } };
   if (status) where.status = status;
   if (doctorId) where.doctorId = doctorId;
@@ -57,7 +57,12 @@ function buildWhere(req) {
       { patientPhone: { contains: search } },
     ];
   }
-  if (range && range !== "all") {
+  if (fromDate || toDate) {
+    // Explicit calendar range from a date picker, interpreted as IST calendar days.
+    where.createdAt = {};
+    if (fromDate) where.createdAt.gte = istDayBounds(fromDate).start;
+    if (toDate) where.createdAt.lt = istDayBounds(toDate).end;
+  } else if (range && range !== "all") {
     const now = new Date();
     let from = null;
     if (range === "today") from = startOfIstDay(0);
