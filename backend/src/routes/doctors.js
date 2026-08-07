@@ -198,7 +198,7 @@ router.post("/:id/redeem-all", requireAuth, requireAccess(["ADMIN"], ["REDEEM_CR
     data,
   });
 
-  res.json({ message: `Redeemed ₹${total.toFixed(2)} across ${pending.length} referral(s) for ${doctor.name}`, total, count: pending.length });
+  res.json({ message: `Redeemed ${total.toFixed(2)} pts across ${pending.length} referral(s) for ${doctor.name}`, total, count: pending.length });
 });
 
 export default router;

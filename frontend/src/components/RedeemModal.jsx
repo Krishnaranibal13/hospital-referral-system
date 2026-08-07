@@ -36,11 +36,11 @@ export default function RedeemModal({ mode, doctorName, defaultAmount, count, on
         {mode === "bulk" ? (
           <p style={{ fontSize: 14, color: "var(--ink-soft)", marginTop: -4 }}>
             This marks <strong>{count} pending credit(s)</strong> totalling{" "}
-            <strong>₹{Number(defaultAmount).toFixed(2)}</strong> for {doctorName} as paid out.
+            <strong>{Number(defaultAmount).toFixed(2)} pts</strong> for {doctorName} as paid out.
           </p>
         ) : (
           <>
-            <label>Amount (₹)</label>
+            <label>Amount (pts)</label>
             <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
           </>
         )}

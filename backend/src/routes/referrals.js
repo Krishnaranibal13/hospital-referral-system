@@ -55,6 +55,7 @@ function buildWhere(req) {
     where.OR = [
       { patientName: { contains: search } },
       { patientPhone: { contains: search } },
+      { uhid: { contains: search } },
     ];
   }
   if (fromDate || toDate) {
@@ -138,13 +139,15 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
   const sheet = workbook.addWorksheet("Referrals");
   sheet.columns = [
     { header: "Patient Name", key: "patientName", width: 22 },
+    { header: "UHID", key: "uhid", width: 16 },
     { header: "Age", key: "patientAge", width: 8 },
     { header: "Gender", key: "patientGender", width: 10 },
     { header: "Phone", key: "patientPhone", width: 16 },
     { header: "Referred By", key: "doctorName", width: 22 },
     { header: "Clinic", key: "clinicName", width: 22 },
     { header: "Status", key: "status", width: 12 },
-    { header: "Credit Amount (₹)", key: "creditAmount", width: 16 },
+    { header: "Visit Type", key: "visitType", width: 12 },
+    { header: "Credit Amount (pts)", key: "creditAmount", width: 16 },
     { header: "Location", key: "location", width: 40 },
     { header: "Submitted At", key: "createdAt", width: 20 },
     { header: "Resolved At", key: "arrivedAt", width: 20 },
@@ -154,12 +157,14 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
   for (const r of referrals) {
     sheet.addRow({
       patientName: r.patientName,
+      uhid: r.uhid || "",
       patientAge: r.patientAge,
       patientGender: r.patientGender || "",
       patientPhone: r.patientPhone || "",
       doctorName: r.doctor.name,
       clinicName: r.doctor.clinicName || "",
       status: r.status,
+      visitType: r.visitType || "",
       creditAmount: r.transaction ? Number(r.transaction.amount) : "",
       location: r.scanAddress || (r.scanLatitude != null ? `${r.scanLatitude}, ${r.scanLongitude}` : ""),
       createdAt: formatDateTime(r.createdAt),
@@ -190,17 +195,19 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
   const startX = doc.page.margins.left;
   const pageBottom = doc.page.height - doc.page.margins.bottom;
 
-  // PDFKit's standard fonts (Helvetica) don't include the ₹ glyph — it renders as a
-  // broken superscript character. "Rs" avoids that entirely in the exported file.
+  // Column widths kept compact for landscape A4; UHID and visit type are short enough
+  // to fit without crowding the patient/location columns.
   const columns = [
     { key: "num", label: "#", width: 22 },
-    { key: "patient", label: "Patient", width: 110 },
-    { key: "gender", label: "Gender", width: 55 },
-    { key: "age", label: "Age", width: 32 },
-    { key: "status", label: "Status", width: 65 },
+    { key: "patient", label: "Patient", width: 100 },
+    { key: "uhid", label: "UHID", width: 70 },
+    { key: "gender", label: "Gender", width: 50 },
+    { key: "age", label: "Age", width: 30 },
+    { key: "status", label: "Status", width: 60 },
+    { key: "visitType", label: "Visit", width: 40 },
     { key: "credit", label: "Credit", width: 55 },
-    { key: "date", label: "Date", width: 55 },
-    { key: "location", label: "Location", width: 280 },
+    { key: "date", label: "Date", width: 50 },
+    { key: "location", label: "Location", width: 200 },
   ];
   const tableWidth = columns.reduce((s, c) => s + c.width, 0);
 
@@ -233,11 +240,11 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
     }
 
     itemNumber += 1;
-    const credit = r.transaction ? `Rs ${Number(r.transaction.amount).toFixed(2)}` : "-";
+    const credit = r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "-";
     let location = r.scanAddress || (r.scanLatitude != null ? `${r.scanLatitude.toFixed(4)}, ${r.scanLongitude.toFixed(4)}` : "Not shared");
     if (location.length > 55) location = location.slice(0, 52) + "...";
 
-    const rowValues = [itemNumber, r.patientName, r.patientGender || "-", r.patientAge, r.status, credit, formatDate(r.createdAt), location];
+    const rowValues = [itemNumber, r.patientName, r.uhid || "-", r.patientGender || "-", r.patientAge, r.status, r.visitType || "-", credit, formatDate(r.createdAt), location];
     let x = startX;
     doc.fontSize(9);
     columns.forEach((c, i) => { doc.text(String(rowValues[i]), x, y, { width: c.width }); x += c.width; });
@@ -258,9 +265,19 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
 });
 
 // POST /api/referrals/:id/arrive  (reception + admin) - confirm patient match, credit the doctor.
-// Accepts an optional `amount` to override the doctor's default per-referral credit for
-// this specific case (e.g. a bonus for an especially valuable referral).
+// Reception must record the patient's UHID and whether this was an IPD or OPD visit; the
+// credited amount is derived from the hospital's admin-fixed IPD/OPD amounts, not entered
+// manually, so it can no longer be overridden per referral.
 router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANAGE_REFERRALS"]), async (req, res) => {
+  const { uhid, visitType } = req.body || {};
+
+  if (!uhid || !String(uhid).trim()) {
+    return res.status(400).json({ error: "UHID is required to confirm this lead" });
+  }
+  if (visitType !== "IPD" && visitType !== "OPD") {
+    return res.status(400).json({ error: "Visit type must be either IPD or OPD" });
+  }
+
   const referral = await prisma.referral.findFirst({
     where: { id: req.params.id, doctor: { hospitalId: req.user.hospitalId } },
     include: { doctor: true },
@@ -270,14 +287,11 @@ router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
     return res.status(400).json({ error: `Referral is already ${referral.status.toLowerCase()}` });
   }
 
-  let amount = referral.doctor.creditAmount;
-  if (req.body?.amount !== undefined) {
-    const parsedAmount = Number(req.body.amount);
-    if (Number.isNaN(parsedAmount) || parsedAmount < 0) {
-      return res.status(400).json({ error: "Credit amount must be a non-negative number" });
-    }
-    amount = parsedAmount;
-  }
+  const hospital = await prisma.hospital.findUnique({
+    where: { id: req.user.hospitalId },
+    select: { ipdAmount: true, opdAmount: true },
+  });
+  const amount = visitType === "IPD" ? hospital.ipdAmount : hospital.opdAmount;
 
   const result = await prisma.$transaction(async (tx) => {
     const updated = await tx.referral.update({
@@ -286,6 +300,8 @@ router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
         status: "CREDITED",
         arrivedAt: new Date(),
         matchedByUserId: req.user.id,
+        uhid: String(uhid).trim(),
+        visitType,
       },
     });
 
@@ -294,7 +310,7 @@ router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
         doctorId: referral.doctorId,
         referralId: referral.id,
         amount,
-        note: `Confirmed by ${req.user.name}${Number(amount) !== Number(referral.doctor.creditAmount) ? " (custom amount)" : ""}`,
+        note: `Confirmed by ${req.user.name} — ${visitType} — UHID ${String(uhid).trim()}`,
       },
     });
 

@@ -3,9 +3,46 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
 
 const router = express.Router();
+
+const settingsSchema = z.object({
+  ipdAmount: z.number().nonnegative(),
+  opdAmount: z.number().nonnegative(),
+});
+
+// GET /api/hospitals/settings  (admin, or reception/staff who can confirm leads)
+// Returns the fixed IPD/OPD credit amounts for the logged-in staff member's own hospital,
+// used to show the amount that will be credited when reception confirms a lead.
+router.get(
+  "/settings",
+  requireAuth,
+  requireAccess(["ADMIN", "RECEPTION"], ["MANAGE_REFERRALS"]),
+  async (req, res) => {
+    const hospital = await prisma.hospital.findUnique({
+      where: { id: req.user.hospitalId },
+      select: { ipdAmount: true, opdAmount: true },
+    });
+    if (!hospital) return res.status(404).json({ error: "Hospital not found" });
+    res.json(hospital);
+  }
+);
+
+// PATCH /api/hospitals/settings  (admin only) — set the fixed IPD/OPD credit amounts
+// paid to the referring doctor once a lead converts, for the admin's own hospital.
+router.patch("/settings", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const parsed = settingsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const hospital = await prisma.hospital.update({
+    where: { id: req.user.hospitalId },
+    data: parsed.data,
+    select: { ipdAmount: true, opdAmount: true },
+  });
+  res.json(hospital);
+});
 
 const createHospitalSchema = z.object({
   name: z.string().min(1),

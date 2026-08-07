@@ -59,7 +59,7 @@ export default function DoctorDashboard() {
     : referrals;
   const pageCount = Math.max(1, Math.ceil(filteredReferrals.length / HISTORY_PAGE_SIZE));
 
-  // 14-day referral trend, computed client-side from the already-loaded history
+  // 14-day lead trend, computed client-side from the already-loaded history
   const trend = [];
   for (let i = 13; i >= 0; i--) {
     const day = new Date();
@@ -73,7 +73,7 @@ export default function DoctorDashboard() {
     trend.push({ label: `${String(day.getDate()).padStart(2, "0")}/${String(day.getMonth() + 1).padStart(2, "0")}`, count });
   }
 
-  // Gender breakdown across all submitted referrals
+  // Gender breakdown across all submitted leads
   const genderCounts = { MALE: 0, FEMALE: 0, OTHER: 0, unspecified: 0 };
   referrals.forEach((r) => {
     if (r.patientGender && genderCounts[r.patientGender] !== undefined) genderCounts[r.patientGender] += 1;
@@ -107,7 +107,7 @@ export default function DoctorDashboard() {
                 {showQr ? "Hide my QR" : "Show my QR"}
               </button>
               <a href={data.referralUrl}>
-                <button style={{ width: "auto", padding: "8px 16px" }}>+ Submit a referral</button>
+                <button style={{ width: "auto", padding: "8px 16px" }}>+ Submit a lead</button>
               </a>
             </div>
           </div>
@@ -123,12 +123,12 @@ export default function DoctorDashboard() {
           )}
 
           <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
-            <div className="stat-card"><div className="stat-label">Total referrals</div><div className="stat-value">{stats.total}</div></div>
+            <div className="stat-card"><div className="stat-label">Total leads</div><div className="stat-value">{stats.total}</div></div>
             <div className="stat-card"><div className="stat-label">Awaiting arrival</div><div className="stat-value" style={{ color: "#92400e" }}>{stats.pending}</div></div>
             <div className="stat-card"><div className="stat-label">Credited</div><div className="stat-value" style={{ color: "var(--green-700)" }}>{stats.credited}</div></div>
             <div className="stat-card"><div className="stat-label">Not matched</div><div className="stat-value" style={{ color: "#991b1b" }}>{stats.rejected}</div></div>
-            <div className="stat-card"><div className="stat-label">Total earned (paid out)</div><div className="stat-value" style={{ color: "var(--green-700)" }}>₹{stats.totalEarned.toFixed(2)}</div></div>
-            <div className="stat-card"><div className="stat-label">Pending credits (not yet paid)</div><div className="stat-value" style={{ color: "#92400e" }}>₹{stats.pendingCredits.toFixed(2)}</div></div>
+            <div className="stat-card"><div className="stat-label">Total earned (paid out)</div><div className="stat-value" style={{ color: "var(--green-700)" }}>{stats.totalEarned.toFixed(2)} pts</div></div>
+            <div className="stat-card"><div className="stat-label">Pending credits (not yet paid)</div><div className="stat-value" style={{ color: "#92400e" }}>{stats.pendingCredits.toFixed(2)} pts</div></div>
           </div>
         </div>
 
@@ -136,7 +136,7 @@ export default function DoctorDashboard() {
           <div className="card">
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <TrendingUp size={16} color="var(--teal-600)" />
-              <h3 style={{ margin: 0 }}>Referral activity — last 14 days</h3>
+              <h3 style={{ margin: 0 }}>Lead activity — last 14 days</h3>
             </div>
             <div style={{ width: "100%", height: 180 }}>
               <ResponsiveContainer>
@@ -151,7 +151,7 @@ export default function DoctorDashboard() {
                   <XAxis dataKey="label" fontSize={11} stroke="var(--ink-soft)" />
                   <YAxis allowDecimals={false} fontSize={11} stroke="var(--ink-soft)" width={28} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="count" name="Referrals" stroke="var(--teal-600)" fill="url(#doctorTrendFill)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="count" name="Leads" stroke="var(--teal-600)" fill="url(#doctorTrendFill)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -177,7 +177,7 @@ export default function DoctorDashboard() {
         </div>
 
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Your referral history</h3>
+          <h3 style={{ marginTop: 0 }}>Your lead history</h3>
 
           <label>Search by patient name</label>
           <div style={{ display: "flex", gap: 8 }}>
@@ -205,7 +205,7 @@ export default function DoctorDashboard() {
                     <td>{r.patientAge}</td>
                     <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                     <td><span className={`badge ${r.status}`}>{STATUS_LABELS[r.status] || r.status}</span></td>
-                    <td>{r.transaction ? `₹${Number(r.transaction.amount).toFixed(2)}` : "—"}</td>
+                    <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
                     <td>
                       {r.transaction ? (
                         <span className={`badge ${r.transaction.redeemed ? "CREDITED" : "PENDING"}`}>
@@ -218,7 +218,7 @@ export default function DoctorDashboard() {
                   </tr>
                 ))}
                 {filteredReferrals.length === 0 && (
-                  <tr><td colSpan={8} style={{ color: "var(--ink-soft)" }}>{search ? "No referrals match that search." : "No referrals submitted yet."}</td></tr>
+                  <tr><td colSpan={8} style={{ color: "var(--ink-soft)" }}>{search ? "No leads match that search." : "No leads submitted yet."}</td></tr>
                 )}
               </tbody>
             </table>

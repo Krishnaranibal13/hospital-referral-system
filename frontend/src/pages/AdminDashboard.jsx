@@ -15,6 +15,7 @@ import Avatar from "../components/Avatar";
 import EmptyState from "../components/EmptyState";
 import DropdownMenu from "../components/DropdownMenu";
 import RedeemModal from "../components/RedeemModal";
+import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import QrModal from "../components/QrModal";
 
 const NAV_ITEMS = [
@@ -77,6 +78,11 @@ export default function AdminDashboard() {
   const [expandedRoleId, setExpandedRoleId] = useState(null);
 
   const [redeemModal, setRedeemModal] = useState(null); // { mode, doctor?, referral? }
+  const [confirmModal, setConfirmModal] = useState(null); // referral being confirmed via IPD/OPD + UHID
+
+  const [hospitalSettings, setHospitalSettings] = useState({ ipdAmount: 0, opdAmount: 0 });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -120,7 +126,34 @@ export default function AdminDashboard() {
     setReferrals(data);
   }
 
-  useEffect(() => { loadDoctorsAndStaff(); loadDashboard(); }, []);
+  async function loadHospitalSettings() {
+    try {
+      const { data } = await api.get("/hospitals/settings");
+      setHospitalSettings({ ipdAmount: Number(data.ipdAmount), opdAmount: Number(data.opdAmount) });
+    } catch {
+      // non-fatal — settings form just stays at defaults
+    }
+  }
+
+  async function saveHospitalSettings(e) {
+    e.preventDefault();
+    setSettingsMessage("");
+    setSavingSettings(true);
+    try {
+      const { data } = await api.patch("/hospitals/settings", {
+        ipdAmount: Number(hospitalSettings.ipdAmount),
+        opdAmount: Number(hospitalSettings.opdAmount),
+      });
+      setHospitalSettings({ ipdAmount: Number(data.ipdAmount), opdAmount: Number(data.opdAmount) });
+      setSettingsMessage("Saved.");
+    } catch (err) {
+      setSettingsMessage(err.response?.data?.error || "Failed to save credit amounts");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  useEffect(() => { loadDoctorsAndStaff(); loadDashboard(); loadHospitalSettings(); }, []);
   useEffect(() => { if (activeTab === "All Referrals") loadReferrals(); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo]);
   useEffect(() => { setDoctorPage(1); }, [doctorSearch, doctorStatusFilter, doctorDateFrom, doctorDateTo]);
   useEffect(() => { setRecentPage(1); }, [dashboardData]);
@@ -270,28 +303,19 @@ export default function AdminDashboard() {
     }
   }
 
-  async function markArrived(referral) {
+  function openConfirmModal(referral) {
     setMessage("");
-    const defaultAmount = Number(referral.doctor?.creditAmount ?? 0);
-    const input = prompt(
-      `Credit amount for ${referral.doctor?.name} (default ₹${defaultAmount.toFixed(2)}). Edit if this referral deserves a different amount:`,
-      defaultAmount.toFixed(2)
-    );
-    if (input === null) return;
-    const amount = Number(input);
-    if (Number.isNaN(amount) || amount < 0) {
-      setMessage("Please enter a valid non-negative amount.");
-      return;
-    }
-    try {
-      await api.post(`/referrals/${referral.id}/arrive`, { amount });
-      setMessage(`Patient confirmed — ₹${amount.toFixed(2)} credited to ${referral.doctor?.name}.`);
-      loadReferrals();
-      loadDoctorsAndStaff();
-      loadDashboard();
-    } catch (err) {
-      setMessage(err.response?.data?.error || "Failed to update referral");
-    }
+    setConfirmModal(referral);
+  }
+
+  async function handleConfirmLead({ uhid, visitType }) {
+    const referral = confirmModal;
+    await api.post(`/referrals/${referral.id}/arrive`, { uhid, visitType });
+    setMessage(`Patient confirmed as ${visitType} (UHID ${uhid}) — credited to ${referral.doctor?.name}.`);
+    setConfirmModal(null);
+    loadReferrals();
+    loadDoctorsAndStaff();
+    loadDashboard();
   }
 
   async function reject(id) {
@@ -409,6 +433,37 @@ export default function AdminDashboard() {
         {/* ==================== DASHBOARD ==================== */}
         {activeTab === "Dashboard" && (
           <>
+            <div className="card" style={{ marginBottom: 20 }}>
+              <h3 style={{ marginTop: 0 }}>Lead credit amounts</h3>
+              <p style={{ color: "var(--ink-soft)", fontSize: 14, marginTop: -8 }}>
+                Fixed amounts credited to the referring doctor when reception confirms a lead, based on whether the patient was admitted (IPD) or seen as an outpatient (OPD).
+              </p>
+              <form onSubmit={saveHospitalSettings} style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div style={{ minWidth: 160 }}>
+                  <label>OPD amount (pts)</label>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={hospitalSettings.opdAmount}
+                    onChange={(e) => setHospitalSettings({ ...hospitalSettings, opdAmount: e.target.value })}
+                    required
+                  />
+                </div>
+                <div style={{ minWidth: 160 }}>
+                  <label>IPD amount (pts)</label>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={hospitalSettings.ipdAmount}
+                    onChange={(e) => setHospitalSettings({ ...hospitalSettings, ipdAmount: e.target.value })}
+                    required
+                  />
+                </div>
+                <button type="submit" style={{ width: "auto", padding: "8px 16px" }} disabled={savingSettings}>
+                  {savingSettings ? "Saving…" : "Save"}
+                </button>
+                {settingsMessage && <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{settingsMessage}</span>}
+              </form>
+            </div>
+
             {dashboardLoading && !dashboardData && <p style={{ color: "var(--ink-soft)" }}>Loading dashboard…</p>}
             {dashboardData && (
               <>
@@ -431,12 +486,12 @@ export default function AdminDashboard() {
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "#b45309" }}><Clock size={18} /></div>
                     <div className="kpi-label">Pending Payouts</div>
-                    <div className="kpi-value">₹{dashboardData.kpis.totalPendingPayouts.toFixed(2)}</div>
+                    <div className="kpi-value">{dashboardData.kpis.totalPendingPayouts.toFixed(2)} pts</div>
                   </div>
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "var(--teal-700)" }}><IndianRupee size={18} /></div>
                     <div className="kpi-label">Total Credits Redeemed</div>
-                    <div className="kpi-value">₹{dashboardData.kpis.totalCreditsRedeemed.toFixed(2)}</div>
+                    <div className="kpi-value">{dashboardData.kpis.totalCreditsRedeemed.toFixed(2)} pts</div>
                   </div>
                 </div>
 
@@ -481,7 +536,7 @@ export default function AdminDashboard() {
                               <div style={{ fontWeight: 600, fontSize: 14 }}>{d.name}</div>
                               <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{d.clinicName || "—"} · {d.count} credit{d.count !== 1 ? "s" : ""}</div>
                             </div>
-                            <div style={{ fontWeight: 700, color: "var(--teal-700)" }}>₹{d.total.toFixed(2)}</div>
+                            <div style={{ fontWeight: 700, color: "var(--teal-700)" }}>{d.total.toFixed(2)} pts</div>
                           </div>
                         ))}
                       </div>
@@ -504,7 +559,7 @@ export default function AdminDashboard() {
                               <div style={{ fontWeight: 600, fontSize: 14 }}>{t.doctor.name}</div>
                               <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{t.referral?.patientName || "—"} · {formatDateTime(t.createdAt)}</div>
                             </div>
-                            <div style={{ fontWeight: 700, color: "#b45309" }}>₹{Number(t.amount).toFixed(2)}</div>
+                            <div style={{ fontWeight: 700, color: "#b45309" }}>{Number(t.amount).toFixed(2)} pts</div>
                           </div>
                         ))}
                       </div>
@@ -595,8 +650,9 @@ export default function AdminDashboard() {
                 <input value={doctorForm.clinicName} onChange={(e) => setDoctorForm({ ...doctorForm, clinicName: e.target.value })} />
                 <label>City (optional)</label>
                 <input value={doctorForm.city} onChange={(e) => setDoctorForm({ ...doctorForm, city: e.target.value })} />
-                <label>Credit per referral (₹)</label>
-                <input type="number" min="0" value={doctorForm.creditAmount} onChange={(e) => setDoctorForm({ ...doctorForm, creditAmount: e.target.value })} required />
+                <p style={{ color: "var(--ink-soft)", fontSize: 12, marginTop: -8 }}>
+                  Credit amounts are set once for the whole hospital under Dashboard → Lead credit amounts (IPD/OPD), not per doctor.
+                </p>
                 <button type="submit">Create doctor & generate QR</button>
               </form>
             )}
@@ -640,7 +696,6 @@ export default function AdminDashboard() {
                     <thead>
                       <tr>
                         <SortHeader label="Doctor" sk="name" />
-                        <SortHeader label="Credit / Referral" sk="creditAmount" />
                         <SortHeader label="Referrals" sk="totalReferrals" />
                         <SortHeader label="Total Credited" sk="totalCredited" />
                         <SortHeader label="Pending Payout" sk="totalPending" />
@@ -661,14 +716,13 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                           </td>
-                          <td>₹{Number(d.creditAmount).toFixed(2)}</td>
                           <td>{d.totalReferrals}</td>
-                          <td>₹{Number(d.totalCredited).toFixed(2)}</td>
+                          <td>{Number(d.totalCredited).toFixed(2)} pts</td>
                           <td>
                             {Number(d.totalPending) > 0 ? (
-                              <span className="chip pending">₹{Number(d.totalPending).toFixed(2)}</span>
+                              <span className="chip pending">{Number(d.totalPending).toFixed(2)} pts</span>
                             ) : (
-                              <span className="chip redeemed">₹0.00</span>
+                              <span className="chip redeemed">0.00 pts</span>
                             )}
                           </td>
                           <td>{d.lastReferralAt ? formatDateTime(d.lastReferralAt) : "—"}</td>
@@ -885,18 +939,20 @@ export default function AdminDashboard() {
               <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Patient</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th><th></th></tr>
+                  <tr><th>Patient</th><th>UHID</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th><th></th></tr>
                 </thead>
                 <tbody>
                   {referrals.map((r) => (
                     <tr key={r.id}>
                       <td>{r.patientName}</td>
+                      <td>{r.uhid || "—"}</td>
                       <td>{r.patientAge}</td>
                       <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                       <td>{r.patientPhone || "—"}</td>
                       <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
                       <td><span className={`badge ${r.status}`}>{r.status}</span></td>
-                      <td>{r.transaction ? `₹${Number(r.transaction.amount).toFixed(2)}` : "—"}</td>
+                      <td>{r.visitType || "—"}</td>
+                      <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
                       <td>
                         {r.transaction ? (
                           <span className={`chip ${r.transaction.redeemed ? "redeemed" : "pending"}`}>{r.transaction.redeemed ? "Paid" : "Unpaid"}</span>
@@ -916,7 +972,7 @@ export default function AdminDashboard() {
                       <td className="row-hover-actions" style={{ display: "flex", gap: 6 }}>
                         {r.status === "PENDING" && (
                           <>
-                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => markArrived(r)}><CheckCircle2 size={14} />Confirm</button>
+                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
                             <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
                           </>
                         )}
@@ -962,6 +1018,14 @@ export default function AdminDashboard() {
           defaultAmount={redeemModal.defaultAmount}
           onClose={() => setRedeemModal(null)}
           onConfirm={confirmSingleRedeem}
+        />
+      )}
+      {confirmModal && (
+        <ConfirmLeadModal
+          patientName={confirmModal.patientName}
+          doctorName={confirmModal.doctor?.name}
+          onClose={() => setConfirmModal(null)}
+          onConfirm={handleConfirmLead}
         />
       )}
     </div>

@@ -4,6 +4,7 @@ import { Search, CheckCircle2, XCircle, MapPin, ChevronLeft, ChevronRight } from
 import api from "../api/client";
 import { formatDate } from "../utils/date";
 import DateRangePicker from "../components/DateRangePicker";
+import ConfirmLeadModal from "../components/ConfirmLeadModal";
 
 const PAGE_SIZE = 10;
 const TABS = [
@@ -24,6 +25,7 @@ export default function ReceptionDashboard() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [page, setPage] = useState(1);
+  const [confirmModal, setConfirmModal] = useState(null);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "null");
 
@@ -58,26 +60,17 @@ export default function ReceptionDashboard() {
   useEffect(() => { load(); }, [tab, doctorId, dateFrom, dateTo]);
   useEffect(() => { setPage(1); }, [tab, doctorId, dateFrom, dateTo, referrals.length]);
 
-  async function markArrived(referral) {
+  function openConfirmModal(referral) {
     setMessage("");
-    const defaultAmount = Number(referral.doctor?.creditAmount ?? 0);
-    const input = prompt(
-      `Credit amount for ${referral.doctor?.name} (default ₹${defaultAmount.toFixed(2)}). Edit if needed:`,
-      defaultAmount.toFixed(2)
-    );
-    if (input === null) return;
-    const amount = Number(input);
-    if (Number.isNaN(amount) || amount < 0) {
-      setMessage("Please enter a valid non-negative amount.");
-      return;
-    }
-    try {
-      await api.post(`/referrals/${referral.id}/arrive`, { amount });
-      setMessage(`Patient confirmed — ₹${amount.toFixed(2)} credited to ${referral.doctor?.name}.`);
-      load();
-    } catch (err) {
-      setMessage(err.response?.data?.error || "Failed to update referral");
-    }
+    setConfirmModal(referral);
+  }
+
+  async function handleConfirmLead({ uhid, visitType }) {
+    const referral = confirmModal;
+    await api.post(`/referrals/${referral.id}/arrive`, { uhid, visitType });
+    setMessage(`Patient confirmed as ${visitType} (UHID ${uhid}) — credited to ${referral.doctor?.name}.`);
+    setConfirmModal(null);
+    load();
   }
 
   async function reject(id) {
@@ -147,18 +140,20 @@ export default function ReceptionDashboard() {
           <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Patient</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Credit</th><th>Location</th><th>Submitted</th><th></th></tr>
+              <tr><th>Patient</th><th>UHID</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Location</th><th>Submitted</th><th></th></tr>
             </thead>
             <tbody>
               {referrals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((r) => (
                 <tr key={r.id}>
                   <td>{r.patientName}</td>
+                  <td>{r.uhid || "—"}</td>
                   <td>{r.patientAge}</td>
                   <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                   <td>{r.patientPhone || "—"}</td>
                   <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
                   <td><span className={`badge ${r.status}`}>{r.status}</span></td>
-                  <td>{r.transaction ? `₹${Number(r.transaction.amount).toFixed(2)}` : "—"}</td>
+                  <td>{r.visitType || "—"}</td>
+                  <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
                   <td>
                     {r.scanLatitude != null ? (
                       <a href={`https://www.google.com/maps?q=${r.scanLatitude},${r.scanLongitude}`} target="_blank" rel="noreferrer">
@@ -172,7 +167,7 @@ export default function ReceptionDashboard() {
                   <td style={{ display: "flex", gap: 6 }}>
                     {r.status === "PENDING" && (
                       <>
-                        <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => markArrived(r)}><CheckCircle2 size={14} />Confirm</button>
+                        <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
                         <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
                       </>
                     )}
@@ -180,7 +175,7 @@ export default function ReceptionDashboard() {
                 </tr>
               ))}
               {referrals.length === 0 && !loading && (
-                <tr><td colSpan={10} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
+                <tr><td colSpan={12} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
               )}
             </tbody>
           </table>
@@ -197,6 +192,15 @@ export default function ReceptionDashboard() {
           )}
         </div>
       </div>
+
+      {confirmModal && (
+        <ConfirmLeadModal
+          patientName={confirmModal.patientName}
+          doctorName={confirmModal.doctor?.name}
+          onClose={() => setConfirmModal(null)}
+          onConfirm={handleConfirmLead}
+        />
+      )}
     </div>
   );
 }

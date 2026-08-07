@@ -27,11 +27,21 @@ enum PatientGender {
   OTHER
 }
 
+enum VisitType {
+  IPD
+  OPD
+}
+
 model Hospital {
   id         String   @id @default(uuid())
   name       String
   branchName String?
   address    String?
+  // Fixed, admin-configurable credit amounts (in INR) paid to the referring doctor
+  // when a lead converts, based on whether the patient was admitted (IPD) or seen
+  // as an outpatient (OPD). Replaces per-referral manual amount entry at confirm time.
+  ipdAmount  Decimal  @default(0) @db.Decimal(10, 2)
+  opdAmount  Decimal  @default(0) @db.Decimal(10, 2)
   createdAt  DateTime @default(now())
 
   staff       StaffUser[]
@@ -109,6 +119,11 @@ model Referral {
   matchedByUserId String?        // reception/admin staff who marked arrival
   arrivedAt       DateTime?
   rejectedReason  String?
+
+  // Captured by reception at confirmation time (not at submission), once the patient
+  // has actually been registered at the hospital.
+  uhid            String?        // Unique Hospital ID assigned to the patient
+  visitType       VisitType?     // IPD or OPD — determines which fixed hospital amount is credited
 
   createdAt       DateTime       @default(now())
 

@@ -205,7 +205,6 @@ export default function SuperAdminDashboard() {
                                 <span style={{ minWidth: 160 }}>{d.name}</span>
                                 <span style={{ minWidth: 160, color: "var(--ink-soft)" }}>{d.clinicName || "—"}</span>
                                 <span style={{ minWidth: 120, color: "var(--ink-soft)" }}>{d.phone}</span>
-                                <span style={{ minWidth: 100, color: "var(--ink-soft)" }}>₹{Number(d.creditAmount).toFixed(2)}/referral</span>
                                 <span className={`badge ${d.active ? "CREDITED" : "REJECTED"}`}>{d.active ? "Active" : "Inactive"}</span>
                               </div>
                             ))}
