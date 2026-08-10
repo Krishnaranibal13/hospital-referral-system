@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -16,6 +16,7 @@ import EmptyState from "../components/EmptyState";
 import DropdownMenu from "../components/DropdownMenu";
 import RedeemModal from "../components/RedeemModal";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
+import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import QrModal from "../components/QrModal";
 
 const NAV_ITEMS = [
@@ -78,7 +79,8 @@ export default function AdminDashboard() {
   const [expandedRoleId, setExpandedRoleId] = useState(null);
 
   const [redeemModal, setRedeemModal] = useState(null); // { mode, doctor?, referral? }
-  const [confirmModal, setConfirmModal] = useState(null); // referral being confirmed via IPD/OPD + UHID
+  const [confirmModal, setConfirmModal] = useState(null); // referral being confirmed via IPD/OPD + file number
+  const [convertModal, setConvertModal] = useState(null); // OPD referral being converted to IPD
 
   const [hospitalSettings, setHospitalSettings] = useState({ ipdAmount: 0, opdAmount: 0 });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -308,11 +310,26 @@ export default function AdminDashboard() {
     setConfirmModal(referral);
   }
 
-  async function handleConfirmLead({ uhid, visitType }) {
+  async function handleConfirmLead({ fileNumber, visitType }) {
     const referral = confirmModal;
-    await api.post(`/referrals/${referral.id}/arrive`, { uhid, visitType });
-    setMessage(`Patient confirmed as ${visitType} (UHID ${uhid}) — credited to ${referral.doctor?.name}.`);
+    await api.post(`/referrals/${referral.id}/arrive`, { fileNumber, visitType });
+    setMessage(`Patient confirmed as ${visitType} (File No. ${fileNumber}) — credited to ${referral.doctor?.name}.`);
     setConfirmModal(null);
+    loadReferrals();
+    loadDoctorsAndStaff();
+    loadDashboard();
+  }
+
+  function openConvertModal(referral) {
+    setMessage("");
+    setConvertModal(referral);
+  }
+
+  async function handleConvertToIpd({ fileNumber }) {
+    const referral = convertModal;
+    await api.post(`/referrals/${referral.id}/convert-to-ipd`, { fileNumber });
+    setMessage(`${referral.patientName} converted to IPD (File No. ${fileNumber}) — ${referral.doctor?.name}'s credit updated.`);
+    setConvertModal(null);
     loadReferrals();
     loadDoctorsAndStaff();
     loadDashboard();
@@ -325,6 +342,18 @@ export default function AdminDashboard() {
       loadReferrals();
     } catch (err) {
       setMessage(err.response?.data?.error || "Failed to update referral");
+    }
+  }
+
+  async function revertReferral(id) {
+    if (!confirm("Revert this rejection? The lead will go back to Pending so reception can review it again.")) return;
+    setMessage("");
+    try {
+      await api.post(`/referrals/${id}/revert`);
+      setMessage("Rejection reverted — lead is back to Pending.");
+      loadReferrals();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to revert this referral");
     }
   }
 
@@ -939,19 +968,19 @@ export default function AdminDashboard() {
               <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Patient</th><th>UHID</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th><th></th></tr>
+                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th><th></th></tr>
                 </thead>
                 <tbody>
                   {referrals.map((r) => (
                     <tr key={r.id}>
                       <td>{r.patientName}</td>
-                      <td>{r.uhid || "—"}</td>
+                      <td>{r.fileNumber || "—"}</td>
                       <td>{r.patientAge}</td>
                       <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                       <td>{r.patientPhone || "—"}</td>
                       <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
                       <td><span className={`badge ${r.status}`}>{r.status}</span></td>
-                      <td>{r.visitType || "—"}</td>
+                      <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
                       <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
                       <td>
                         {r.transaction ? (
@@ -975,6 +1004,12 @@ export default function AdminDashboard() {
                             <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
                             <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
                           </>
+                        )}
+                        {r.status === "CREDITED" && r.visitType === "OPD" && (
+                          <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
+                        )}
+                        {r.status === "REJECTED" && (
+                          <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => revertReferral(r.id)}><RotateCcw size={14} />Revert</button>
                         )}
                         {r.transaction && !r.transaction.redeemed && (
                           <button className="btn-redeem" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setRedeemModal({ mode: "single", referral: r, defaultAmount: Number(r.transaction.amount) })}>
@@ -1026,6 +1061,15 @@ export default function AdminDashboard() {
           doctorName={confirmModal.doctor?.name}
           onClose={() => setConfirmModal(null)}
           onConfirm={handleConfirmLead}
+        />
+      )}
+      {convertModal && (
+        <ConvertToIpdModal
+          patientName={convertModal.patientName}
+          doctorName={convertModal.doctor?.name}
+          currentAmount={convertModal.transaction ? Number(convertModal.transaction.amount) : 0}
+          onClose={() => setConvertModal(null)}
+          onConvert={handleConvertToIpd}
         />
       )}
     </div>

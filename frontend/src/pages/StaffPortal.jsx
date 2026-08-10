@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowUpCircle } from "lucide-react";
 import api from "../api/client";
 import { formatDate } from "../utils/date";
 import RedeemModal from "../components/RedeemModal";
+import ConfirmLeadModal from "../components/ConfirmLeadModal";
+import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import DateRangePicker from "../components/DateRangePicker";
 
 const PAGE_SIZE = 10;
@@ -35,6 +37,8 @@ export default function StaffPortal() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [redeemModal, setRedeemModal] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [convertModal, setConvertModal] = useState(null);
   const [page, setPage] = useState(1);
 
   async function load() {
@@ -69,20 +73,30 @@ export default function StaffPortal() {
   useEffect(() => { load(); }, [tab, doctorId, dateFrom, dateTo]);
   useEffect(() => { setPage(1); }, [tab, doctorId, dateFrom, dateTo, referrals.length]);
 
-  async function markArrived(referral) {
+  function openConfirmModal(referral) {
     setMessage("");
-    const defaultAmount = Number(referral.doctor?.creditAmount ?? 0);
-    const input = prompt(`Credit amount for ${referral.doctor?.name} (default ₹${defaultAmount.toFixed(2)}):`, defaultAmount.toFixed(2));
-    if (input === null) return;
-    const amount = Number(input);
-    if (Number.isNaN(amount) || amount < 0) return setMessage("Please enter a valid non-negative amount.");
-    try {
-      await api.post(`/referrals/${referral.id}/arrive`, { amount });
-      setMessage(`Patient confirmed — ₹${amount.toFixed(2)} credited to ${referral.doctor?.name}.`);
-      load();
-    } catch (err) {
-      setMessage(err.response?.data?.error || "Failed to update referral");
-    }
+    setConfirmModal(referral);
+  }
+
+  async function handleConfirmLead({ fileNumber, visitType }) {
+    const referral = confirmModal;
+    await api.post(`/referrals/${referral.id}/arrive`, { fileNumber, visitType });
+    setMessage(`Patient confirmed as ${visitType} (File No. ${fileNumber}) — credited to ${referral.doctor?.name}.`);
+    setConfirmModal(null);
+    load();
+  }
+
+  function openConvertModal(referral) {
+    setMessage("");
+    setConvertModal(referral);
+  }
+
+  async function handleConvertToIpd({ fileNumber }) {
+    const referral = convertModal;
+    await api.post(`/referrals/${referral.id}/convert-to-ipd`, { fileNumber });
+    setMessage(`${referral.patientName} converted to IPD (File No. ${fileNumber}) — ${referral.doctor?.name}'s credit updated.`);
+    setConvertModal(null);
+    load();
   }
 
   async function reject(id) {
@@ -233,7 +247,7 @@ export default function StaffPortal() {
               <table>
                 <thead>
                   <tr>
-                    <th>Patient</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Status</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th>
+                    <th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th>
                     {showActionsColumn && <th></th>}
                   </tr>
                 </thead>
@@ -241,11 +255,13 @@ export default function StaffPortal() {
                   {referrals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((r) => (
                     <tr key={r.id}>
                       <td>{r.patientName}</td>
+                      <td>{r.fileNumber || "—"}</td>
                       <td>{r.patientAge}</td>
                       <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                       <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
                       <td><span className={`badge ${r.status}`}>{r.status}</span></td>
-                      <td>{r.transaction ? `₹${Number(r.transaction.amount).toFixed(2)}` : "—"}</td>
+                      <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
+                      <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
                       <td>
                         {r.transaction ? (
                           <span className={`badge ${r.transaction.redeemed ? "CREDITED" : "PENDING"}`}>{r.transaction.redeemed ? "Paid" : "Unpaid"}</span>
@@ -263,9 +279,12 @@ export default function StaffPortal() {
                         <td style={{ display: "flex", gap: 6 }}>
                           {canManage && r.status === "PENDING" && (
                             <>
-                              <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => markArrived(r)}>Confirm arrival</button>
+                              <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}>Confirm arrival</button>
                               <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}>Reject</button>
                             </>
+                          )}
+                          {canManage && r.status === "CREDITED" && r.visitType === "OPD" && (
+                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
                           )}
                           {canRedeem && r.transaction && !r.transaction.redeemed && (
                             <button className="btn-redeem" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setRedeemModal({ mode: "single", referral: r, defaultAmount: Number(r.transaction.amount) })}>Redeem</button>
@@ -275,7 +294,7 @@ export default function StaffPortal() {
                     </tr>
                   ))}
                   {referrals.length === 0 && !loading && (
-                    <tr><td colSpan={showActionsColumn ? 10 : 9} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
+                    <tr><td colSpan={showActionsColumn ? 12 : 11} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -311,6 +330,23 @@ export default function StaffPortal() {
           defaultAmount={redeemModal.defaultAmount}
           onClose={() => setRedeemModal(null)}
           onConfirm={confirmSingleRedeem}
+        />
+      )}
+      {confirmModal && (
+        <ConfirmLeadModal
+          patientName={confirmModal.patientName}
+          doctorName={confirmModal.doctor?.name}
+          onClose={() => setConfirmModal(null)}
+          onConfirm={handleConfirmLead}
+        />
+      )}
+      {convertModal && (
+        <ConvertToIpdModal
+          patientName={convertModal.patientName}
+          doctorName={convertModal.doctor?.name}
+          currentAmount={convertModal.transaction ? Number(convertModal.transaction.amount) : 0}
+          onClose={() => setConvertModal(null)}
+          onConvert={handleConvertToIpd}
         />
       )}
     </div>

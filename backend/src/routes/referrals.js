@@ -55,7 +55,7 @@ function buildWhere(req) {
     where.OR = [
       { patientName: { contains: search } },
       { patientPhone: { contains: search } },
-      { uhid: { contains: search } },
+      { fileNumber: { contains: search } },
     ];
   }
   if (fromDate || toDate) {
@@ -139,7 +139,7 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
   const sheet = workbook.addWorksheet("Referrals");
   sheet.columns = [
     { header: "Patient Name", key: "patientName", width: 22 },
-    { header: "UHID", key: "uhid", width: 16 },
+    { header: "File No.", key: "fileNumber", width: 16 },
     { header: "Age", key: "patientAge", width: 8 },
     { header: "Gender", key: "patientGender", width: 10 },
     { header: "Phone", key: "patientPhone", width: 16 },
@@ -157,7 +157,7 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
   for (const r of referrals) {
     sheet.addRow({
       patientName: r.patientName,
-      uhid: r.uhid || "",
+      fileNumber: r.fileNumber || "",
       patientAge: r.patientAge,
       patientGender: r.patientGender || "",
       patientPhone: r.patientPhone || "",
@@ -195,12 +195,12 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
   const startX = doc.page.margins.left;
   const pageBottom = doc.page.height - doc.page.margins.bottom;
 
-  // Column widths kept compact for landscape A4; UHID and visit type are short enough
-  // to fit without crowding the patient/location columns.
+  // Column widths kept compact for landscape A4; file number and visit type are short
+  // enough to fit without crowding the patient/location columns.
   const columns = [
     { key: "num", label: "#", width: 22 },
     { key: "patient", label: "Patient", width: 100 },
-    { key: "uhid", label: "UHID", width: 70 },
+    { key: "fileNumber", label: "File No.", width: 70 },
     { key: "gender", label: "Gender", width: 50 },
     { key: "age", label: "Age", width: 30 },
     { key: "status", label: "Status", width: 60 },
@@ -244,7 +244,7 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
     let location = r.scanAddress || (r.scanLatitude != null ? `${r.scanLatitude.toFixed(4)}, ${r.scanLongitude.toFixed(4)}` : "Not shared");
     if (location.length > 55) location = location.slice(0, 52) + "...";
 
-    const rowValues = [itemNumber, r.patientName, r.uhid || "-", r.patientGender || "-", r.patientAge, r.status, r.visitType || "-", credit, formatDate(r.createdAt), location];
+    const rowValues = [itemNumber, r.patientName, r.fileNumber || "-", r.patientGender || "-", r.patientAge, r.status, r.visitType || "-", credit, formatDate(r.createdAt), location];
     let x = startX;
     doc.fontSize(9);
     columns.forEach((c, i) => { doc.text(String(rowValues[i]), x, y, { width: c.width }); x += c.width; });
@@ -265,14 +265,14 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
 });
 
 // POST /api/referrals/:id/arrive  (reception + admin) - confirm patient match, credit the doctor.
-// Reception must record the patient's UHID and whether this was an IPD or OPD visit; the
-// credited amount is derived from the hospital's admin-fixed IPD/OPD amounts, not entered
-// manually, so it can no longer be overridden per referral.
+// Reception must record the patient's IPD/OPD file number and whether this was an IPD or
+// OPD visit; the credited amount is derived from the hospital's admin-fixed IPD/OPD
+// amounts, not entered manually, so it can no longer be overridden per referral.
 router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANAGE_REFERRALS"]), async (req, res) => {
-  const { uhid, visitType } = req.body || {};
+  const { fileNumber, visitType } = req.body || {};
 
-  if (!uhid || !String(uhid).trim()) {
-    return res.status(400).json({ error: "UHID is required to confirm this lead" });
+  if (!fileNumber || !String(fileNumber).trim()) {
+    return res.status(400).json({ error: "A file number is required to confirm this lead" });
   }
   if (visitType !== "IPD" && visitType !== "OPD") {
     return res.status(400).json({ error: "Visit type must be either IPD or OPD" });
@@ -300,7 +300,7 @@ router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
         status: "CREDITED",
         arrivedAt: new Date(),
         matchedByUserId: req.user.id,
-        uhid: String(uhid).trim(),
+        fileNumber: String(fileNumber).trim(),
         visitType,
       },
     });
@@ -310,9 +310,78 @@ router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
         doctorId: referral.doctorId,
         referralId: referral.id,
         amount,
-        note: `Confirmed by ${req.user.name} — ${visitType} — UHID ${String(uhid).trim()}`,
+        note: `Confirmed by ${req.user.name} — ${visitType} — File No. ${String(fileNumber).trim()}`,
       },
     });
+
+    return { updated, transaction };
+  });
+
+  res.json(result);
+});
+
+// POST /api/referrals/:id/convert-to-ipd  (reception + admin) - a lead originally confirmed
+// as OPD later gets admitted. Updates the file number to the new IPD file number and bumps
+// the doctor's credit from the OPD amount up to the (admin-fixed) IPD amount. Blocked once
+// the OPD credit has already been paid out, since silently changing a paid amount would
+// break the payout record — accounts should adjust that case manually.
+router.post("/:id/convert-to-ipd", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANAGE_REFERRALS"]), async (req, res) => {
+  const { fileNumber } = req.body || {};
+
+  if (!fileNumber || !String(fileNumber).trim()) {
+    return res.status(400).json({ error: "The new IPD file number is required to convert this lead" });
+  }
+
+  const referral = await prisma.referral.findFirst({
+    where: { id: req.params.id, doctor: { hospitalId: req.user.hospitalId } },
+    include: { doctor: true, transaction: true },
+  });
+  if (!referral) return res.status(404).json({ error: "Referral not found" });
+  if (referral.status !== "CREDITED") {
+    return res.status(400).json({ error: "Only a confirmed (credited) lead can be converted to IPD" });
+  }
+  if (referral.visitType !== "OPD") {
+    return res.status(400).json({ error: "This lead is not currently an OPD visit" });
+  }
+  if (referral.transaction?.redeemed) {
+    return res.status(400).json({
+      error: "This lead's OPD credit has already been paid out. Please ask accounts to adjust it manually instead.",
+    });
+  }
+
+  const hospital = await prisma.hospital.findUnique({
+    where: { id: req.user.hospitalId },
+    select: { ipdAmount: true },
+  });
+  const previousAmount = referral.transaction ? Number(referral.transaction.amount) : 0;
+  const newAmount = Number(hospital.ipdAmount);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const updated = await tx.referral.update({
+      where: { id: referral.id },
+      data: {
+        visitType: "IPD",
+        fileNumber: String(fileNumber).trim(),
+        convertedAt: new Date(),
+      },
+    });
+
+    const transaction = referral.transaction
+      ? await tx.creditTransaction.update({
+          where: { id: referral.transaction.id },
+          data: {
+            amount: newAmount,
+            note: `${referral.transaction.note || ""} | Converted OPD→IPD by ${req.user.name}: ${previousAmount.toFixed(2)} → ${newAmount.toFixed(2)} pts, file no. ${String(fileNumber).trim()}`,
+          },
+        })
+      : await tx.creditTransaction.create({
+          data: {
+            doctorId: referral.doctorId,
+            referralId: referral.id,
+            amount: newAmount,
+            note: `Converted OPD→IPD by ${req.user.name} — File No. ${String(fileNumber).trim()}`,
+          },
+        });
 
     return { updated, transaction };
   });
@@ -331,6 +400,26 @@ router.post("/:id/reject", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
   const updated = await prisma.referral.update({
     where: { id: req.params.id },
     data: { status: "REJECTED", rejectedReason: reason || "No reason given" },
+  });
+  res.json(updated);
+});
+
+// POST /api/referrals/:id/revert  (admin only) - undo a rejection, putting the referral
+// back to PENDING so reception can confirm it after all. Only admins can do this, since
+// reception rejecting is meant to be a considered decision that shouldn't be casually
+// second-guessed at the reception desk itself.
+router.post("/:id/revert", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const referral = await prisma.referral.findFirst({
+    where: { id: req.params.id, doctor: { hospitalId: req.user.hospitalId } },
+  });
+  if (!referral) return res.status(404).json({ error: "Referral not found" });
+  if (referral.status !== "REJECTED") {
+    return res.status(400).json({ error: "Only a rejected referral can be reverted" });
+  }
+
+  const updated = await prisma.referral.update({
+    where: { id: req.params.id },
+    data: { status: "PENDING", rejectedReason: null },
   });
   res.json(updated);
 });

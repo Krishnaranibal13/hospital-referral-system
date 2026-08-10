@@ -82,12 +82,12 @@ export default function ReferralForm() {
               fontSize: 28, color: "var(--green-700)",
             }}>✓</div>
           </div>
-          <h2 style={{ textAlign: "center" }}>Referral submitted</h2>
+          <h2 style={{ textAlign: "center" }}>Lead submitted</h2>
           <p style={{ textAlign: "center", color: "var(--ink-soft)" }}>
             Thank you. Please have the patient bring this to the hospital reception, or simply mention their name when they arrive.
           </p>
           <a href={`/doctor/${doctorCode}`}>
-            <button className="secondary" style={{ marginTop: 8 }}>View my referral dashboard</button>
+            <button className="secondary" style={{ marginTop: 8 }}>View my lead dashboard</button>
           </a>
         </div>
       </div>
@@ -100,7 +100,7 @@ export default function ReferralForm() {
         <div className="topbar-brand">
           <img src="/logo.png" alt="Vedansh Medicare" />
           <div>
-            <strong>Refer a Patient</strong>
+            <strong>Submit a Lead</strong>
             <span className="brand-sub">{hospital?.name}{hospital?.branchName ? ` · ${hospital.branchName}` : ""}</span>
           </div>
         </div>
@@ -110,9 +110,9 @@ export default function ReferralForm() {
       </div>
       <div className="container" style={{ paddingTop: 24 }}>
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>Refer a patient</h2>
+          <h2 style={{ marginTop: 0 }}>Submit a lead</h2>
           <p style={{ color: "var(--ink-soft)", fontSize: 14 }}>
-            Fill in the patient's basic details. Location access helps us verify the referral.
+            Fill in the patient's basic details. Location access helps us verify the lead.
           </p>
 
           {locationStatus === "idle" && (
@@ -152,7 +152,7 @@ export default function ReferralForm() {
             {error && <p className="error">{error}</p>}
 
             <button type="submit" disabled={submitting || locationStatus === "requesting"}>
-              {submitting ? "Submitting…" : "Submit referral"}
+              {submitting ? "Submitting…" : "Submit lead"}
             </button>
           </form>
         </div>

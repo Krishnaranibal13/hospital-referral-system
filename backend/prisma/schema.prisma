@@ -121,9 +121,13 @@ model Referral {
   rejectedReason  String?
 
   // Captured by reception at confirmation time (not at submission), once the patient
-  // has actually been registered at the hospital.
-  uhid            String?        // Unique Hospital ID assigned to the patient
+  // has actually been registered at the hospital. Holds the IPD or OPD file number
+  // depending on visitType — not a hospital-wide UHID.
+  fileNumber      String?
   visitType       VisitType?     // IPD or OPD — determines which fixed hospital amount is credited
+  // Set when an OPD lead is later converted to IPD (e.g. the patient ends up admitted).
+  // Non-null convertedAt means this referral was originally confirmed as OPD.
+  convertedAt     DateTime?
 
   createdAt       DateTime       @default(now())
 

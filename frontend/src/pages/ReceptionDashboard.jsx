@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, CheckCircle2, XCircle, MapPin, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, CheckCircle2, XCircle, MapPin, ChevronLeft, ChevronRight, ArrowUpCircle } from "lucide-react";
 import api from "../api/client";
 import { formatDate } from "../utils/date";
 import DateRangePicker from "../components/DateRangePicker";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
+import ConvertToIpdModal from "../components/ConvertToIpdModal";
 
 const PAGE_SIZE = 10;
 const TABS = [
@@ -26,6 +27,7 @@ export default function ReceptionDashboard() {
   const [message, setMessage] = useState("");
   const [page, setPage] = useState(1);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [convertModal, setConvertModal] = useState(null);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "null");
 
@@ -65,11 +67,24 @@ export default function ReceptionDashboard() {
     setConfirmModal(referral);
   }
 
-  async function handleConfirmLead({ uhid, visitType }) {
+  async function handleConfirmLead({ fileNumber, visitType }) {
     const referral = confirmModal;
-    await api.post(`/referrals/${referral.id}/arrive`, { uhid, visitType });
-    setMessage(`Patient confirmed as ${visitType} (UHID ${uhid}) — credited to ${referral.doctor?.name}.`);
+    await api.post(`/referrals/${referral.id}/arrive`, { fileNumber, visitType });
+    setMessage(`Patient confirmed as ${visitType} (File No. ${fileNumber}) — credited to ${referral.doctor?.name}.`);
     setConfirmModal(null);
+    load();
+  }
+
+  function openConvertModal(referral) {
+    setMessage("");
+    setConvertModal(referral);
+  }
+
+  async function handleConvertToIpd({ fileNumber }) {
+    const referral = convertModal;
+    await api.post(`/referrals/${referral.id}/convert-to-ipd`, { fileNumber });
+    setMessage(`${referral.patientName} converted to IPD (File No. ${fileNumber}) — ${referral.doctor?.name}'s credit updated.`);
+    setConvertModal(null);
     load();
   }
 
@@ -140,19 +155,19 @@ export default function ReceptionDashboard() {
           <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Patient</th><th>UHID</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Location</th><th>Submitted</th><th></th></tr>
+              <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Location</th><th>Submitted</th><th></th></tr>
             </thead>
             <tbody>
               {referrals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((r) => (
                 <tr key={r.id}>
                   <td>{r.patientName}</td>
-                  <td>{r.uhid || "—"}</td>
+                  <td>{r.fileNumber || "—"}</td>
                   <td>{r.patientAge}</td>
                   <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                   <td>{r.patientPhone || "—"}</td>
                   <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
                   <td><span className={`badge ${r.status}`}>{r.status}</span></td>
-                  <td>{r.visitType || "—"}</td>
+                  <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
                   <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
                   <td>
                     {r.scanLatitude != null ? (
@@ -170,6 +185,9 @@ export default function ReceptionDashboard() {
                         <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
                         <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
                       </>
+                    )}
+                    {r.status === "CREDITED" && r.visitType === "OPD" && (
+                      <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
                     )}
                   </td>
                 </tr>
@@ -199,6 +217,15 @@ export default function ReceptionDashboard() {
           doctorName={confirmModal.doctor?.name}
           onClose={() => setConfirmModal(null)}
           onConfirm={handleConfirmLead}
+        />
+      )}
+      {convertModal && (
+        <ConvertToIpdModal
+          patientName={convertModal.patientName}
+          doctorName={convertModal.doctor?.name}
+          currentAmount={convertModal.transaction ? Number(convertModal.transaction.amount) : 0}
+          onClose={() => setConvertModal(null)}
+          onConvert={handleConvertToIpd}
         />
       )}
     </div>
