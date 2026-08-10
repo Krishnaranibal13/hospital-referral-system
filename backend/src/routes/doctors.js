@@ -1,10 +1,13 @@
 import express from "express";
 import QRCode from "qrcode";
+import ExcelJS from "exceljs";
+import multer from "multer";
 import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const doctorSchema = z.object({
   name: z.string().min(1),
@@ -60,6 +63,105 @@ router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const qrDataUrl = await QRCode.toDataURL(referralUrl);
 
   res.status(201).json({ doctor, referralUrl, dashboardUrl, qrDataUrl });
+});
+
+// GET /api/doctors/bulk-import/template  (admin) - downloadable Excel template with the
+// exact columns the bulk-import endpoint below expects, plus example rows.
+router.get("/bulk-import/template", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Leaders");
+  sheet.columns = [
+    { header: "Name", key: "name", width: 24 },
+    { header: "Specialty", key: "specialty", width: 22 },
+    { header: "Phone", key: "phone", width: 16 },
+    { header: "Clinic Name", key: "clinicName", width: 24 },
+    { header: "City", key: "city", width: 18 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  sheet.addRow({ name: "Dr. Anita Sharma", specialty: "Ophthalmologist", phone: "9876543210", clinicName: "Sharma Eye Clinic", city: "Greater Noida" });
+  sheet.addRow({ name: "Ramesh Kumar", specialty: "Ambulance Staff", phone: "9876500000", clinicName: "", city: "Greater Noida" });
+  sheet.addRow({ name: "Suresh Yadav", specialty: "Village Pradhan", phone: "9876511111", clinicName: "", city: "Dadri" });
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", "attachment; filename=leader-bulk-import-template.xlsx");
+  await workbook.xlsx.write(res);
+  res.end();
+});
+
+// POST /api/doctors/bulk-import  (admin) - create many leader profiles at once from an
+// uploaded Excel file. Columns are matched by header name, case-insensitively, and can be
+// in any order — only "Name" and a phone column are required; everything else is optional.
+// Does not generate QR codes here (500 rows would mean 500 QR images) — QR codes are
+// generated on demand per leader from "View QR" in the list, same as a normal single create.
+router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const workbook = new ExcelJS.Workbook();
+  try {
+    await workbook.xlsx.load(req.file.buffer);
+  } catch {
+    return res.status(400).json({ error: "Could not read this file. Make sure it's a valid .xlsx file." });
+  }
+
+  const sheet = workbook.worksheets[0];
+  if (!sheet || sheet.rowCount < 2) {
+    return res.status(400).json({ error: "The uploaded sheet has no data rows." });
+  }
+
+  // Map header row -> column number, case-insensitively and tolerant of common variations.
+  const colIndex = {};
+  sheet.getRow(1).eachCell((cell, colNumber) => {
+    const key = String(cell.value || "").trim().toLowerCase();
+    if (key) colIndex[key] = colNumber;
+  });
+  const findCol = (...names) => names.map((n) => colIndex[n]).find((v) => v !== undefined) ?? null;
+
+  const nameCol = findCol("name");
+  const specialtyCol = findCol("specialty", "speciality", "role");
+  const phoneCol = findCol("phone", "mobile", "mobile number", "mob number", "mob no", "phone number");
+  const clinicCol = findCol("clinic name", "clinic");
+  const cityCol = findCol("city");
+
+  if (!nameCol || !phoneCol) {
+    return res.status(400).json({
+      error: "The sheet must have at least a 'Name' column and a 'Phone' (or 'Mob Number') column in the first row.",
+    });
+  }
+
+  const created = [];
+  const skipped = [];
+  const getCell = (row, col) => (col ? String(row.getCell(col).value ?? "").trim() : "");
+
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
+    const row = sheet.getRow(rowNumber);
+    const name = getCell(row, nameCol);
+    const phone = getCell(row, phoneCol);
+
+    if (!name && !phone) continue; // silently skip fully blank rows (common at the end of a sheet)
+
+    if (!name || !phone) {
+      skipped.push({ row: rowNumber, reason: !name ? "Missing name" : "Missing phone number" });
+      continue;
+    }
+
+    try {
+      const doctor = await prisma.doctor.create({
+        data: {
+          name,
+          phone,
+          specialty: getCell(row, specialtyCol) || null,
+          clinicName: getCell(row, clinicCol) || null,
+          city: getCell(row, cityCol) || null,
+          hospitalId: req.user.hospitalId,
+        },
+      });
+      created.push({ row: rowNumber, id: doctor.id, name: doctor.name });
+    } catch {
+      skipped.push({ row: rowNumber, reason: "Could not save this row due to an unexpected error" });
+    }
+  }
+
+  res.json({ createdCount: created.length, skippedCount: skipped.length, skipped });
 });
 
 // GET /api/doctors  (admin) - list doctors within the admin's own hospital only

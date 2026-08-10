@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -17,11 +17,12 @@ import DropdownMenu from "../components/DropdownMenu";
 import RedeemModal from "../components/RedeemModal";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
+import BulkImportLeadersModal from "../components/BulkImportLeadersModal";
 import QrModal from "../components/QrModal";
 
 const NAV_ITEMS = [
   { key: "Dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "Doctors", label: "Doctors", icon: Stethoscope },
+  { key: "Doctors", label: "Leaders", icon: Stethoscope },
   { key: "Staff", label: "Staff", icon: Users },
   { key: "All Referrals", label: "All Referrals", icon: ClipboardList },
 ];
@@ -57,6 +58,7 @@ export default function AdminDashboard() {
   const [recentPage, setRecentPage] = useState(1);
 
   const [showDoctorForm, setShowDoctorForm] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [doctorForm, setDoctorForm] = useState({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", creditAmount: 0 });
   const [newDoctorQr, setNewDoctorQr] = useState(null);
   const [qrModalDoctor, setQrModalDoctor] = useState(null);
@@ -639,7 +641,7 @@ export default function AdminDashboard() {
                   <h3 style={{ marginTop: 0 }}>Quick actions</h3>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <button style={{ width: "auto", padding: "10px 18px" }} onClick={() => { setActiveTab("Doctors"); setShowDoctorForm(true); }}>
-                      <Plus size={15} />Add doctor
+                      <Plus size={15} />Add leader
                     </button>
                     <button className="secondary" style={{ width: "auto", padding: "10px 18px" }} onClick={() => { setActiveTab("Staff"); setShowStaffForm(true); }}>
                       <Plus size={15} />Add staff
@@ -654,23 +656,31 @@ export default function AdminDashboard() {
           </>
         )}
 
-        {/* ==================== DOCTORS ==================== */}
+        {/* ==================== LEADERS ==================== */}
         {activeTab === "Doctors" && (
           <div className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-              <h3 style={{ margin: 0 }}>Doctors</h3>
-              <button style={{ width: "auto", padding: "8px 16px" }} onClick={() => { setShowDoctorForm(!showDoctorForm); setNewDoctorQr(null); }}>
-                {showDoctorForm ? <X size={16} /> : <Plus size={16} />}
-                {showDoctorForm ? "Cancel" : "Add doctor"}
-              </button>
+              <h3 style={{ margin: 0 }}>Leaders</h3>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="secondary" style={{ width: "auto", padding: "8px 16px" }} onClick={() => setShowBulkImport(true)}>
+                  <Upload size={16} />Bulk import
+                </button>
+                <button style={{ width: "auto", padding: "8px 16px" }} onClick={() => { setShowDoctorForm(!showDoctorForm); setNewDoctorQr(null); }}>
+                  {showDoctorForm ? <X size={16} /> : <Plus size={16} />}
+                  {showDoctorForm ? "Cancel" : "Add leader"}
+                </button>
+              </div>
             </div>
+            <p style={{ color: "var(--ink-soft)", fontSize: 13, marginTop: -6 }}>
+              Doctors, ambulance staff, village Pradhans, or anyone else who refers patients to you.
+            </p>
 
             {showDoctorForm && (
               <form onSubmit={handleCreateDoctor} style={{ marginTop: 16 }}>
                 <label>Name</label>
                 <input value={doctorForm.name} onChange={(e) => setDoctorForm({ ...doctorForm, name: e.target.value })} required />
-                <label>Specialty (optional)</label>
-                <input value={doctorForm.specialty} onChange={(e) => setDoctorForm({ ...doctorForm, specialty: e.target.value })} placeholder="e.g. Ophthalmologist" />
+                <label>Role / Specialty (optional)</label>
+                <input value={doctorForm.specialty} onChange={(e) => setDoctorForm({ ...doctorForm, specialty: e.target.value })} placeholder="e.g. Ophthalmologist, Ambulance Staff, Village Pradhan" />
                 <label>Phone</label>
                 <input value={doctorForm.phone} onChange={(e) => setDoctorForm({ ...doctorForm, phone: e.target.value })} required />
                 <label>Email (optional)</label>
@@ -680,19 +690,19 @@ export default function AdminDashboard() {
                 <label>City (optional)</label>
                 <input value={doctorForm.city} onChange={(e) => setDoctorForm({ ...doctorForm, city: e.target.value })} />
                 <p style={{ color: "var(--ink-soft)", fontSize: 12, marginTop: -8 }}>
-                  Credit amounts are set once for the whole hospital under Dashboard → Lead credit amounts (IPD/OPD), not per doctor.
+                  Credit amounts are set once for the whole hospital under Dashboard → Lead credit amounts (IPD/OPD), not per leader.
                 </p>
-                <button type="submit">Create doctor & generate QR</button>
+                <button type="submit">Create leader & generate QR</button>
               </form>
             )}
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 16, alignItems: "flex-end" }}>
               <div style={{ flex: 2, minWidth: 220 }}>
-                <label>Search doctors</label>
+                <label>Search leaders</label>
                 <div style={{ display: "flex", gap: 8 }}>
                   <div style={{ position: "relative", flex: 1 }}>
                     <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--ink-soft)" }} />
-                    <input style={{ paddingLeft: 34 }} value={doctorSearch} onChange={(e) => setDoctorSearch(e.target.value)} placeholder="Name, clinic, or specialty…" />
+                    <input style={{ paddingLeft: 34 }} value={doctorSearch} onChange={(e) => setDoctorSearch(e.target.value)} placeholder="Name, clinic, or role…" />
                   </div>
                   <button style={{ width: "auto", padding: "11px 16px" }} onClick={() => setDoctorPage(1)}><Search size={15} />Search</button>
                 </div>
@@ -709,14 +719,14 @@ export default function AdminDashboard() {
 
             <div style={{ marginBottom: -8 }}>
               <DateRangePicker from={doctorDateFrom} to={doctorDateTo} onChange={({ from, to }) => { setDoctorDateFrom(from); setDoctorDateTo(to); }} />
-              <p style={{ color: "var(--ink-soft)", fontSize: 12, marginTop: -12 }}>Filters by each doctor's most recent referral date.</p>
+              <p style={{ color: "var(--ink-soft)", fontSize: 12, marginTop: -12 }}>Filters by each leader's most recent referral date.</p>
             </div>
 
             {filteredSortedDoctors.length === 0 ? (
               <EmptyState
                 icon={Stethoscope}
-                title={doctors.length === 0 ? "No doctors yet" : "No doctors match your filters"}
-                subtitle={doctors.length === 0 ? "Add your first doctor to generate their referral QR code" : "Try a different search or filter"}
+                title={doctors.length === 0 ? "No leaders yet" : "No leaders match your filters"}
+                subtitle={doctors.length === 0 ? "Add your first leader to generate their referral QR code, or bulk import from Excel" : "Try a different search or filter"}
               />
             ) : (
               <>
@@ -724,7 +734,7 @@ export default function AdminDashboard() {
                   <table style={{ marginTop: 8 }}>
                     <thead>
                       <tr>
-                        <SortHeader label="Doctor" sk="name" />
+                        <SortHeader label="Leader" sk="name" />
                         <SortHeader label="Referrals" sk="totalReferrals" />
                         <SortHeader label="Total Credited" sk="totalCredited" />
                         <SortHeader label="Pending Payout" sk="totalPending" />
@@ -1070,6 +1080,12 @@ export default function AdminDashboard() {
           currentAmount={convertModal.transaction ? Number(convertModal.transaction.amount) : 0}
           onClose={() => setConvertModal(null)}
           onConvert={handleConvertToIpd}
+        />
+      )}
+      {showBulkImport && (
+        <BulkImportLeadersModal
+          onClose={() => setShowBulkImport(false)}
+          onImported={loadDoctorsAndStaff}
         />
       )}
     </div>
