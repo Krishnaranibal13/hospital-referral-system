@@ -87,7 +87,7 @@ export default function DoctorDashboard() {
         <div className="topbar-brand">
           <img src="/logo.png" alt="Vedansh Medicare" />
           <div>
-            <strong>Doctor Dashboard</strong>
+            <strong>Leader Dashboard</strong>
             <span className="brand-sub">{data.hospital?.name}{data.hospital?.branchName ? ` · ${data.hospital.branchName}` : ""}</span>
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function DoctorDashboard() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Patient</th><th>Age</th><th>Gender</th><th>Status</th><th>Credit</th><th>Payout status</th><th>Submitted</th><th>Resolved</th></tr>
+                <tr><th>Patient</th><th>Age</th><th>Gender</th><th>Status</th><th>Credit</th><th>Payout status</th><th>Submitted</th><th>Resolved</th><th>Discharged</th></tr>
               </thead>
               <tbody>
                 {filteredReferrals.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE).map((r) => (
@@ -215,10 +215,11 @@ export default function DoctorDashboard() {
                     </td>
                     <td>{formatDateTime(r.createdAt)}</td>
                     <td>{r.arrivedAt ? formatDateTime(r.arrivedAt) : "—"}</td>
+                    <td>{r.dischargedAt ? formatDateTime(r.dischargedAt) : "—"}</td>
                   </tr>
                 ))}
                 {filteredReferrals.length === 0 && (
-                  <tr><td colSpan={8} style={{ color: "var(--ink-soft)" }}>{search ? "No leads match that search." : "No leads submitted yet."}</td></tr>
+                  <tr><td colSpan={9} style={{ color: "var(--ink-soft)" }}>{search ? "No leads match that search." : "No leads submitted yet."}</td></tr>
                 )}
               </tbody>
             </table>

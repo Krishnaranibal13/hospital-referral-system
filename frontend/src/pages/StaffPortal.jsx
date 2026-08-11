@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, ArrowUpCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowUpCircle, LogOut } from "lucide-react";
 import api from "../api/client";
-import { formatDate } from "../utils/date";
+import { formatDate, formatDateTime } from "../utils/date";
 import RedeemModal from "../components/RedeemModal";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
@@ -97,6 +97,18 @@ export default function StaffPortal() {
     setMessage(`${referral.patientName} converted to IPD (File No. ${fileNumber}) — ${referral.doctor?.name}'s credit updated.`);
     setConvertModal(null);
     load();
+  }
+
+  async function discharge(referral) {
+    if (!confirm(`Mark ${referral.patientName} as discharged now?`)) return;
+    setMessage("");
+    try {
+      await api.post(`/referrals/${referral.id}/discharge`);
+      setMessage(`${referral.patientName} marked as discharged.`);
+      load();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to mark as discharged");
+    }
   }
 
   async function reject(id) {
@@ -247,7 +259,7 @@ export default function StaffPortal() {
               <table>
                 <thead>
                   <tr>
-                    <th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th>
+                    <th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Location</th><th>Submitted</th>
                     {showActionsColumn && <th></th>}
                   </tr>
                 </thead>
@@ -267,6 +279,7 @@ export default function StaffPortal() {
                           <span className={`badge ${r.transaction.redeemed ? "CREDITED" : "PENDING"}`}>{r.transaction.redeemed ? "Paid" : "Unpaid"}</span>
                         ) : "—"}
                       </td>
+                      <td>{r.dischargedAt ? formatDateTime(r.dischargedAt) : "—"}</td>
                       <td>
                         {r.scanLatitude != null ? (
                           <a href={`https://www.google.com/maps?q=${r.scanLatitude},${r.scanLongitude}`} target="_blank" rel="noreferrer">
@@ -286,6 +299,9 @@ export default function StaffPortal() {
                           {canManage && r.status === "CREDITED" && r.visitType === "OPD" && (
                             <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
                           )}
+                          {canManage && r.status === "CREDITED" && !r.dischargedAt && (
+                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
+                          )}
                           {canRedeem && r.transaction && !r.transaction.redeemed && (
                             <button className="btn-redeem" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setRedeemModal({ mode: "single", referral: r, defaultAmount: Number(r.transaction.amount) })}>Redeem</button>
                           )}
@@ -294,7 +310,7 @@ export default function StaffPortal() {
                     </tr>
                   ))}
                   {referrals.length === 0 && !loading && (
-                    <tr><td colSpan={showActionsColumn ? 12 : 11} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
+                    <tr><td colSpan={showActionsColumn ? 13 : 12} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
                   )}
                 </tbody>
               </table>

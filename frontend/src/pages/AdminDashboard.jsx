@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -18,6 +18,7 @@ import RedeemModal from "../components/RedeemModal";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import BulkImportLeadersModal from "../components/BulkImportLeadersModal";
+import AddPatientModal from "../components/AddPatientModal";
 import QrModal from "../components/QrModal";
 
 const NAV_ITEMS = [
@@ -83,6 +84,7 @@ export default function AdminDashboard() {
   const [redeemModal, setRedeemModal] = useState(null); // { mode, doctor?, referral? }
   const [confirmModal, setConfirmModal] = useState(null); // referral being confirmed via IPD/OPD + file number
   const [convertModal, setConvertModal] = useState(null); // OPD referral being converted to IPD
+  const [showAddPatient, setShowAddPatient] = useState(false);
 
   const [hospitalSettings, setHospitalSettings] = useState({ ipdAmount: 0, opdAmount: 0 });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -356,6 +358,18 @@ export default function AdminDashboard() {
       loadReferrals();
     } catch (err) {
       setMessage(err.response?.data?.error || "Failed to revert this referral");
+    }
+  }
+
+  async function discharge(referral) {
+    if (!confirm(`Mark ${referral.patientName} as discharged now?`)) return;
+    setMessage("");
+    try {
+      await api.post(`/referrals/${referral.id}/discharge`);
+      setMessage(`${referral.patientName} marked as discharged.`);
+      loadReferrals();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to mark as discharged");
     }
   }
 
@@ -947,6 +961,7 @@ export default function AdminDashboard() {
                 ))}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
+                <button style={{ width: "auto", padding: "6px 14px" }} onClick={() => setShowAddPatient(true)}><UserPlus size={14} />Add patient</button>
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => exportReferrals("excel")}><Download size={14} />Excel</button>
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => exportReferrals("pdf")}><Download size={14} />PDF</button>
               </div>
@@ -978,7 +993,7 @@ export default function AdminDashboard() {
               <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Location</th><th>Submitted</th><th></th></tr>
+                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Location</th><th>Submitted</th><th></th></tr>
                 </thead>
                 <tbody>
                   {referrals.map((r) => (
@@ -997,6 +1012,7 @@ export default function AdminDashboard() {
                           <span className={`chip ${r.transaction.redeemed ? "redeemed" : "pending"}`}>{r.transaction.redeemed ? "Paid" : "Unpaid"}</span>
                         ) : "—"}
                       </td>
+                      <td>{r.dischargedAt ? formatDateTime(r.dischargedAt) : "—"}</td>
                       <td>
                         {r.scanLatitude != null ? (
                           <a href={`https://www.google.com/maps?q=${r.scanLatitude},${r.scanLongitude}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -1017,6 +1033,9 @@ export default function AdminDashboard() {
                         )}
                         {r.status === "CREDITED" && r.visitType === "OPD" && (
                           <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
+                        )}
+                        {r.status === "CREDITED" && !r.dischargedAt && (
+                          <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
                         )}
                         {r.status === "REJECTED" && (
                           <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => revertReferral(r.id)}><RotateCcw size={14} />Revert</button>
@@ -1086,6 +1105,22 @@ export default function AdminDashboard() {
         <BulkImportLeadersModal
           onClose={() => setShowBulkImport(false)}
           onImported={loadDoctorsAndStaff}
+        />
+      )}
+      {showAddPatient && (
+        <AddPatientModal
+          onClose={() => setShowAddPatient(false)}
+          onAdded={(data) => {
+            setShowAddPatient(false);
+            setMessage(
+              data?.newLeaderCreated
+                ? `Patient added — "${data.doctorName}" was created as a new leader. Now showing under Pending.`
+                : "Patient added — now showing under Pending."
+            );
+            setReferralTab("PENDING");
+            loadReferrals();
+            loadDoctorsAndStaff();
+          }}
         />
       )}
     </div>

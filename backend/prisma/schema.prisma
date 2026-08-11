@@ -85,7 +85,9 @@ model Doctor {
 
   name          String
   specialty     String?
-  phone         String
+  // Optional: a leader can be quick-added by name only from the "Add patient" flow
+  // (reception may not have their phone on hand yet); can be filled in later.
+  phone         String?
   email         String?
   clinicName    String?
   city          String?
@@ -128,6 +130,9 @@ model Referral {
   // Set when an OPD lead is later converted to IPD (e.g. the patient ends up admitted).
   // Non-null convertedAt means this referral was originally confirmed as OPD.
   convertedAt     DateTime?
+  // Set by reception when the patient is discharged. Only meaningful once CREDITED;
+  // shown to the referring leader so they know the visit is fully wrapped up.
+  dischargedAt    DateTime?
 
   createdAt       DateTime       @default(now())
 

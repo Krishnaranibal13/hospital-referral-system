@@ -111,6 +111,50 @@ router.post("/", publicLimiter, async (req, res) => {
   res.status(201).json({ message: "Referral submitted successfully", referralId: referral.id });
 });
 
+const manualReferralSchema = z.object({
+  doctorId: z.string().uuid().optional(),
+  newLeaderName: z.string().min(1).optional(),
+  patientName: z.string().min(1),
+  patientAge: z.number().int().positive().max(130),
+  patientPhone: z.string().optional(),
+  patientGender: z.enum(["MALE", "FEMALE", "OTHER"]),
+}).refine((data) => Boolean(data.doctorId) !== Boolean(data.newLeaderName), {
+  message: "Provide either an existing leader (doctorId) or a new leader's name, not both or neither",
+});
+
+// POST /api/referrals/manual  (reception + admin) - a patient walks in directly (e.g. they
+// mention a leader referred them, but never scanned the QR themselves). Reception picks the
+// referring leader from a dropdown and enters the patient's details on their behalf. Lands
+// in PENDING just like a normal submission, so it still goes through the usual confirm flow.
+// If the leader isn't in the system yet, reception can type a new name instead of picking one
+// (newLeaderName) — a minimal leader profile (name only, no phone) is created on the fly and
+// can be filled in later from the Leaders tab.
+router.post("/manual", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANAGE_REFERRALS"]), async (req, res) => {
+  const parsed = manualReferralSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const { doctorId, newLeaderName, patientName, patientAge, patientPhone, patientGender } = parsed.data;
+
+  let doctor;
+  let newLeaderCreated = false;
+  if (doctorId) {
+    doctor = await prisma.doctor.findFirst({ where: { id: doctorId, hospitalId: req.user.hospitalId } });
+    if (!doctor) return res.status(404).json({ error: "That leader was not found for this hospital" });
+  } else {
+    doctor = await prisma.doctor.create({
+      data: { name: newLeaderName.trim(), hospitalId: req.user.hospitalId },
+    });
+    newLeaderCreated = true;
+  }
+
+  const referral = await prisma.referral.create({
+    data: { doctorId: doctor.id, patientName, patientAge, patientPhone, patientGender },
+  });
+
+  res.status(201).json({ message: "Patient added successfully", referralId: referral.id, newLeaderCreated, doctorName: doctor.name });
+});
+
 // GET /api/referrals?search=name_or_phone&status=PENDING  (reception + admin)
 // Scoped to the logged-in staff member's own hospital, via each referral's doctor.
 router.get("/", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["VIEW_REFERRALS", "MANAGE_REFERRALS"]), async (req, res) => {
@@ -151,6 +195,7 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
     { header: "Location", key: "location", width: 40 },
     { header: "Submitted At", key: "createdAt", width: 20 },
     { header: "Resolved At", key: "arrivedAt", width: 20 },
+    { header: "Discharged At", key: "dischargedAt", width: 20 },
   ];
   sheet.getRow(1).font = { bold: true };
 
@@ -169,6 +214,7 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
       location: r.scanAddress || (r.scanLatitude != null ? `${r.scanLatitude}, ${r.scanLongitude}` : ""),
       createdAt: formatDateTime(r.createdAt),
       arrivedAt: r.arrivedAt ? formatDateTime(r.arrivedAt) : "",
+      dischargedAt: r.dischargedAt ? formatDateTime(r.dischargedAt) : "",
     });
   }
 
@@ -387,6 +433,28 @@ router.post("/:id/convert-to-ipd", requireAuth, requireAccess(["ADMIN", "RECEPTI
   });
 
   res.json(result);
+});
+
+// POST /api/referrals/:id/discharge  (reception + admin) - marks the patient as discharged,
+// recording the exact date/time. Only valid for a CREDITED referral that hasn't already
+// been discharged. Shown back to the referring leader on their own dashboard.
+router.post("/:id/discharge", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANAGE_REFERRALS"]), async (req, res) => {
+  const referral = await prisma.referral.findFirst({
+    where: { id: req.params.id, doctor: { hospitalId: req.user.hospitalId } },
+  });
+  if (!referral) return res.status(404).json({ error: "Referral not found" });
+  if (referral.status !== "CREDITED") {
+    return res.status(400).json({ error: "Only a confirmed (credited) lead can be discharged" });
+  }
+  if (referral.dischargedAt) {
+    return res.status(400).json({ error: "This patient has already been marked as discharged" });
+  }
+
+  const updated = await prisma.referral.update({
+    where: { id: referral.id },
+    data: { dischargedAt: new Date() },
+  });
+  res.json(updated);
 });
 
 // POST /api/referrals/:id/reject  (reception + admin) - not a valid match

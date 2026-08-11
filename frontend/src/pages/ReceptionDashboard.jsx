@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, CheckCircle2, XCircle, MapPin, ChevronLeft, ChevronRight, ArrowUpCircle } from "lucide-react";
+import { Search, CheckCircle2, XCircle, MapPin, ChevronLeft, ChevronRight, ArrowUpCircle, UserPlus, LogOut } from "lucide-react";
 import api from "../api/client";
-import { formatDate } from "../utils/date";
+import { formatDate, formatDateTime } from "../utils/date";
 import DateRangePicker from "../components/DateRangePicker";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
+import AddPatientModal from "../components/AddPatientModal";
 
 const PAGE_SIZE = 10;
 const TABS = [
@@ -28,6 +29,7 @@ export default function ReceptionDashboard() {
   const [page, setPage] = useState(1);
   const [confirmModal, setConfirmModal] = useState(null);
   const [convertModal, setConvertModal] = useState(null);
+  const [showAddPatient, setShowAddPatient] = useState(false);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "null");
 
@@ -88,6 +90,18 @@ export default function ReceptionDashboard() {
     load();
   }
 
+  async function discharge(referral) {
+    if (!confirm(`Mark ${referral.patientName} as discharged now?`)) return;
+    setMessage("");
+    try {
+      await api.post(`/referrals/${referral.id}/discharge`);
+      setMessage(`${referral.patientName} marked as discharged.`);
+      load();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to mark as discharged");
+    }
+  }
+
   async function reject(id) {
     const reason = prompt("Reason for rejecting this match (optional):") || "";
     try {
@@ -118,17 +132,22 @@ export default function ReceptionDashboard() {
 
       <div className="container-wide">
         <div className="card">
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                className={`tab-btn ${tab === t.key ? "" : "secondary"}`}
-                style={{ width: "auto" }}
-                onClick={() => setTab(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  className={`tab-btn ${tab === t.key ? "" : "secondary"}`}
+                  style={{ width: "auto" }}
+                  onClick={() => setTab(t.key)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <button style={{ width: "auto", padding: "8px 16px" }} onClick={() => setShowAddPatient(true)}>
+              <UserPlus size={16} />Add patient
+            </button>
           </div>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
@@ -155,7 +174,7 @@ export default function ReceptionDashboard() {
           <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Location</th><th>Submitted</th><th></th></tr>
+              <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Discharged</th><th>Location</th><th>Submitted</th><th></th></tr>
             </thead>
             <tbody>
               {referrals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((r) => (
@@ -169,6 +188,7 @@ export default function ReceptionDashboard() {
                   <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                   <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
                   <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
+                  <td>{r.dischargedAt ? formatDateTime(r.dischargedAt) : "—"}</td>
                   <td>
                     {r.scanLatitude != null ? (
                       <a href={`https://www.google.com/maps?q=${r.scanLatitude},${r.scanLongitude}`} target="_blank" rel="noreferrer">
@@ -189,11 +209,14 @@ export default function ReceptionDashboard() {
                     {r.status === "CREDITED" && r.visitType === "OPD" && (
                       <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
                     )}
+                    {r.status === "CREDITED" && !r.dischargedAt && (
+                      <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
+                    )}
                   </td>
                 </tr>
               ))}
               {referrals.length === 0 && !loading && (
-                <tr><td colSpan={12} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
+                <tr><td colSpan={13} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
               )}
             </tbody>
           </table>
@@ -226,6 +249,21 @@ export default function ReceptionDashboard() {
           currentAmount={convertModal.transaction ? Number(convertModal.transaction.amount) : 0}
           onClose={() => setConvertModal(null)}
           onConvert={handleConvertToIpd}
+        />
+      )}
+      {showAddPatient && (
+        <AddPatientModal
+          onClose={() => setShowAddPatient(false)}
+          onAdded={(data) => {
+            setShowAddPatient(false);
+            setMessage(
+              data?.newLeaderCreated
+                ? `Patient added — "${data.doctorName}" was created as a new leader. Now showing under Pending.`
+                : "Patient added — now showing under Pending."
+            );
+            setTab("PENDING");
+            load();
+          }}
         />
       )}
     </div>
