@@ -7,6 +7,7 @@ import DateRangePicker from "../components/DateRangePicker";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import AddPatientModal from "../components/AddPatientModal";
+import { PANEL_OPTIONS } from "../utils/panels";
 
 const PAGE_SIZE = 10;
 const TABS = [
@@ -102,6 +103,15 @@ export default function ReceptionDashboard() {
     }
   }
 
+  async function updatePanel(referralId, panel) {
+    try {
+      await api.patch(`/referrals/${referralId}/panel`, { panel: panel || null });
+      load();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to update panel");
+    }
+  }
+
   async function reject(id) {
     const reason = prompt("Reason for rejecting this match (optional):") || "";
     try {
@@ -174,7 +184,7 @@ export default function ReceptionDashboard() {
           <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Discharged</th><th>Location</th><th>Submitted</th><th></th></tr>
+              <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th><th></th></tr>
             </thead>
             <tbody>
               {referrals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((r) => (
@@ -190,6 +200,18 @@ export default function ReceptionDashboard() {
                   <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
                   <td>{r.dischargedAt ? formatDateTime(r.dischargedAt) : "—"}</td>
                   <td>
+                    <select
+                      value={r.panel || ""}
+                      onChange={(e) => updatePanel(r.id, e.target.value)}
+                      style={{ minWidth: 140, fontSize: 13, padding: "6px 8px" }}
+                    >
+                      <option value="">— None —</option>
+                      {PANEL_OPTIONS.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
                     {r.scanLatitude != null ? (
                       <a href={`https://www.google.com/maps?q=${r.scanLatitude},${r.scanLongitude}`} target="_blank" rel="noreferrer">
                         {r.scanAddress ? r.scanAddress.slice(0, 30) + (r.scanAddress.length > 30 ? "…" : "") : "View on map"}
@@ -199,24 +221,26 @@ export default function ReceptionDashboard() {
                     )}
                   </td>
                   <td>{formatDate(r.createdAt)}</td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    {r.status === "PENDING" && (
-                      <>
-                        <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
-                        <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
-                      </>
-                    )}
-                    {r.status === "CREDITED" && r.visitType === "OPD" && (
-                      <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
-                    )}
-                    {r.status === "CREDITED" && !r.dischargedAt && (
-                      <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
-                    )}
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {r.status === "PENDING" && (
+                        <>
+                          <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
+                          <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
+                        </>
+                      )}
+                      {r.status === "CREDITED" && r.visitType === "OPD" && (
+                        <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
+                      )}
+                      {r.status === "CREDITED" && !r.dischargedAt && (
+                        <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
               {referrals.length === 0 && !loading && (
-                <tr><td colSpan={13} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
+                <tr><td colSpan={14} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
               )}
             </tbody>
           </table>

@@ -7,6 +7,7 @@ import RedeemModal from "../components/RedeemModal";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import DateRangePicker from "../components/DateRangePicker";
+import { PANEL_OPTIONS } from "../utils/panels";
 
 const PAGE_SIZE = 10;
 
@@ -108,6 +109,15 @@ export default function StaffPortal() {
       load();
     } catch (err) {
       setMessage(err.response?.data?.error || "Failed to mark as discharged");
+    }
+  }
+
+  async function updatePanel(referralId, panel) {
+    try {
+      await api.patch(`/referrals/${referralId}/panel`, { panel: panel || null });
+      load();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to update panel");
     }
   }
 
@@ -259,7 +269,7 @@ export default function StaffPortal() {
               <table>
                 <thead>
                   <tr>
-                    <th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Location</th><th>Submitted</th>
+                    <th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th>
                     {showActionsColumn && <th></th>}
                   </tr>
                 </thead>
@@ -281,6 +291,18 @@ export default function StaffPortal() {
                       </td>
                       <td>{r.dischargedAt ? formatDateTime(r.dischargedAt) : "—"}</td>
                       <td>
+                        <select
+                          value={r.panel || ""}
+                          onChange={(e) => updatePanel(r.id, e.target.value)}
+                          style={{ minWidth: 140, fontSize: 13, padding: "6px 8px" }}
+                        >
+                          <option value="">— None —</option>
+                          {PANEL_OPTIONS.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
                         {r.scanLatitude != null ? (
                           <a href={`https://www.google.com/maps?q=${r.scanLatitude},${r.scanLongitude}`} target="_blank" rel="noreferrer">
                             {r.scanAddress ? r.scanAddress.slice(0, 25) + "…" : "View on map"}
@@ -289,28 +311,30 @@ export default function StaffPortal() {
                       </td>
                       <td>{formatDate(r.createdAt)}</td>
                       {showActionsColumn && (
-                        <td style={{ display: "flex", gap: 6 }}>
-                          {canManage && r.status === "PENDING" && (
-                            <>
-                              <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}>Confirm arrival</button>
-                              <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}>Reject</button>
-                            </>
-                          )}
-                          {canManage && r.status === "CREDITED" && r.visitType === "OPD" && (
-                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
-                          )}
-                          {canManage && r.status === "CREDITED" && !r.dischargedAt && (
-                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
-                          )}
-                          {canRedeem && r.transaction && !r.transaction.redeemed && (
-                            <button className="btn-redeem" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setRedeemModal({ mode: "single", referral: r, defaultAmount: Number(r.transaction.amount) })}>Redeem</button>
-                          )}
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            {canManage && r.status === "PENDING" && (
+                              <>
+                                <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}>Confirm arrival</button>
+                                <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}>Reject</button>
+                              </>
+                            )}
+                            {canManage && r.status === "CREDITED" && r.visitType === "OPD" && (
+                              <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
+                            )}
+                            {canManage && r.status === "CREDITED" && !r.dischargedAt && (
+                              <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
+                            )}
+                            {canRedeem && r.transaction && !r.transaction.redeemed && (
+                              <button className="btn-redeem" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setRedeemModal({ mode: "single", referral: r, defaultAmount: Number(r.transaction.amount) })}>Redeem</button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
                   ))}
                   {referrals.length === 0 && !loading && (
-                    <tr><td colSpan={showActionsColumn ? 13 : 12} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
+                    <tr><td colSpan={showActionsColumn ? 14 : 13} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
                   )}
                 </tbody>
               </table>

@@ -3,10 +3,13 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
+import multer from "multer";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
 import { startOfIstDay, istDayBounds } from "../utils/istDate.js";
 import { formatDate, formatDateTime } from "../utils/formatDate.js";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const router = express.Router();
 
@@ -155,6 +158,220 @@ router.post("/manual", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANA
   res.status(201).json({ message: "Patient added successfully", referralId: referral.id, newLeaderCreated, doctorName: doctor.name });
 });
 
+// GET /api/referrals/bulk-import/template  (admin) - downloadable Excel template for
+// backfilling referrals that already happened before this system was in use. Only Name and
+// File No. are mandatory; everything else is optional and can be left blank per row.
+router.get("/bulk-import/template", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Referred Patients");
+  sheet.columns = [
+    { header: "Name", key: "name", width: 22 },
+    { header: "File No.", key: "fileNumber", width: 16 },
+    { header: "Age", key: "age", width: 8 },
+    { header: "Gender", key: "gender", width: 10 },
+    { header: "Phone", key: "phone", width: 16 },
+    { header: "Referred By", key: "referredBy", width: 22 },
+    { header: "Visit Type", key: "visitType", width: 12 },
+    { header: "Panel", key: "panel", width: 26 },
+    { header: "Credit Amount", key: "creditAmount", width: 14 },
+    { header: "Submitted Date", key: "submittedDate", width: 16 },
+    { header: "Discharged Date", key: "dischargedDate", width: 16 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  sheet.addRow({ name: "Ramesh Kumar", fileNumber: "IPD-3001", age: 45, gender: "Male", phone: "9876500000", referredBy: "Dr Niraj", visitType: "IPD", panel: "CGHS", creditAmount: "", submittedDate: "", dischargedDate: "" });
+  sheet.addRow({ name: "Sunita Devi", fileNumber: "OPD-3002", age: 30, gender: "Female", phone: "", referredBy: "", visitType: "OPD", panel: "", creditAmount: "", submittedDate: "", dischargedDate: "" });
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", "attachment; filename=referred-patients-bulk-import-template.xlsx");
+  await workbook.xlsx.write(res);
+  res.end();
+});
+
+// POST /api/referrals/bulk-import  (admin) - backfill referrals that already happened before
+// this system was in use. Only Name and File No. are required per row — everything else is
+// optional. Rows are imported as CREDITED (a file number implies the patient was already
+// confirmed/admitted in real life). "Referred By" is matched against existing leaders by
+// name (case-insensitive); an unrecognized name auto-creates a new leader, same as the
+// leader bulk import. A blank "Referred By" falls back to a shared "Self" leader per
+// hospital (created once, reused for every such row).
+router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const workbook = new ExcelJS.Workbook();
+  try {
+    await workbook.xlsx.load(req.file.buffer);
+  } catch {
+    return res.status(400).json({ error: "Could not read this file. Make sure it's a valid .xlsx file." });
+  }
+
+  const sheet = workbook.worksheets[0];
+  if (!sheet || sheet.rowCount < 2) {
+    return res.status(400).json({ error: "The uploaded sheet has no data rows." });
+  }
+
+  const colIndex = {};
+  sheet.getRow(1).eachCell((cell, colNumber) => {
+    const key = String(cell.value || "").trim().toLowerCase();
+    if (key) colIndex[key] = colNumber;
+  });
+  const findCol = (...names) => names.map((n) => colIndex[n]).find((v) => v !== undefined) ?? null;
+
+  const nameCol = findCol("name", "patient name");
+  const fileNoCol = findCol("file no.", "file no", "file number", "filenumber");
+  const ageCol = findCol("age", "patient age");
+  const genderCol = findCol("gender", "patient gender");
+  const phoneCol = findCol("phone", "mobile", "patient phone");
+  const referredByCol = findCol("referred by", "leader", "doctor");
+  const visitTypeCol = findCol("visit type", "visit", "type");
+  const panelCol = findCol("panel");
+  const creditCol = findCol("credit amount", "credit", "amount");
+  const submittedCol = findCol("submitted date", "submitted", "date");
+  const dischargedCol = findCol("discharged date", "discharge date", "discharged");
+
+  if (!nameCol || !fileNoCol) {
+    return res.status(400).json({
+      error: "The sheet must have at least a 'Name' column and a 'File No.' column in the first row.",
+    });
+  }
+
+  const hospital = await prisma.hospital.findUnique({
+    where: { id: req.user.hospitalId },
+    select: { ipdAmount: true, opdAmount: true },
+  });
+
+  // Cache leaders by lowercased name so repeat names across rows don't re-query/re-create.
+  const existingLeaders = await prisma.doctor.findMany({ where: { hospitalId: req.user.hospitalId } });
+  const leaderCache = new Map(existingLeaders.map((d) => [d.name.trim().toLowerCase(), d]));
+  let selfLeader = leaderCache.get("self") || null;
+  let newLeadersCreated = 0;
+
+  const getCell = (row, col) => (col ? row.getCell(col).value : null);
+  const getText = (row, col) => {
+    const v = getCell(row, col);
+    return v === null || v === undefined ? "" : String(v).trim();
+  };
+  const parseDate = (row, col) => {
+    const v = getCell(row, col);
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    const parsed = new Date(v);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+  const parseGender = (text) => {
+    const t = text.trim().toLowerCase();
+    if (t.startsWith("m")) return "MALE";
+    if (t.startsWith("f")) return "FEMALE";
+    if (t) return "OTHER";
+    return null;
+  };
+  const parseVisitType = (text) => {
+    const t = text.trim().toUpperCase();
+    return t === "IPD" || t === "OPD" ? t : null;
+  };
+
+  const created = [];
+  const skipped = [];
+
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
+    const row = sheet.getRow(rowNumber);
+    const name = getText(row, nameCol);
+    const fileNumber = getText(row, fileNoCol);
+
+    if (!name && !fileNumber) continue; // silently skip fully blank rows
+
+    if (!name || !fileNumber) {
+      skipped.push({ row: rowNumber, reason: !name ? "Missing name" : "Missing file number" });
+      continue;
+    }
+
+    try {
+      // Resolve the referring leader: existing match, quick-create, or fall back to "Self".
+      const referredByText = getText(row, referredByCol);
+      let doctor;
+      if (referredByText) {
+        const key = referredByText.toLowerCase();
+        doctor = leaderCache.get(key);
+        if (!doctor) {
+          doctor = await prisma.doctor.create({ data: { name: referredByText, hospitalId: req.user.hospitalId } });
+          leaderCache.set(key, doctor);
+          newLeadersCreated += 1;
+        }
+      } else {
+        if (!selfLeader) {
+          selfLeader = await prisma.doctor.create({ data: { name: "Self", hospitalId: req.user.hospitalId } });
+          leaderCache.set("self", selfLeader);
+        }
+        doctor = selfLeader;
+      }
+
+      const ageText = getText(row, ageCol);
+      const patientAge = ageText && !Number.isNaN(Number(ageText)) ? Math.round(Number(ageText)) : 0;
+      const patientGender = parseGender(getText(row, genderCol));
+      const patientPhone = getText(row, phoneCol) || null;
+      const visitType = parseVisitType(getText(row, visitTypeCol));
+      const panel = getText(row, panelCol) || null;
+      const submittedDate = parseDate(row, submittedCol);
+      const dischargedDate = parseDate(row, dischargedCol);
+
+      const explicitCreditText = getText(row, creditCol);
+      const explicitCredit = explicitCreditText && !Number.isNaN(Number(explicitCreditText)) ? Number(explicitCreditText) : null;
+      const derivedAmount = visitType === "IPD" ? Number(hospital.ipdAmount) : visitType === "OPD" ? Number(hospital.opdAmount) : null;
+      const creditAmount = explicitCredit ?? derivedAmount;
+
+      const referral = await prisma.referral.create({
+        data: {
+          doctorId: doctor.id,
+          patientName: name,
+          patientAge,
+          patientPhone,
+          patientGender,
+          status: "CREDITED",
+          fileNumber,
+          visitType,
+          panel,
+          arrivedAt: submittedDate || new Date(),
+          dischargedAt: dischargedDate,
+          ...(submittedDate ? { createdAt: submittedDate } : {}),
+        },
+      });
+
+      if (creditAmount !== null) {
+        await prisma.creditTransaction.create({
+          data: {
+            doctorId: doctor.id,
+            referralId: referral.id,
+            amount: creditAmount,
+            note: `Bulk-imported by ${req.user.name} — File No. ${fileNumber}`,
+          },
+        });
+      }
+
+      created.push({ row: rowNumber, id: referral.id, name });
+    } catch {
+      skipped.push({ row: rowNumber, reason: "Could not save this row due to an unexpected error" });
+    }
+  }
+
+  res.json({ createdCount: created.length, skippedCount: skipped.length, skipped, newLeadersCreated });
+});
+
+// PATCH /api/referrals/:id/panel  (reception + admin) - set or clear which insurance
+// company / TPA / government scheme / corporate account this patient's treatment is
+// billed against. Independent of status, so it can be set any time reception knows it.
+router.patch("/:id/panel", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANAGE_REFERRALS"]), async (req, res) => {
+  const { panel } = req.body || {};
+  const referral = await prisma.referral.findFirst({
+    where: { id: req.params.id, doctor: { hospitalId: req.user.hospitalId } },
+  });
+  if (!referral) return res.status(404).json({ error: "Referral not found" });
+
+  const updated = await prisma.referral.update({
+    where: { id: referral.id },
+    data: { panel: panel ? String(panel).trim() : null },
+  });
+  res.json(updated);
+});
+
 // GET /api/referrals?search=name_or_phone&status=PENDING  (reception + admin)
 // Scoped to the logged-in staff member's own hospital, via each referral's doctor.
 router.get("/", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["VIEW_REFERRALS", "MANAGE_REFERRALS"]), async (req, res) => {
@@ -196,6 +413,7 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
     { header: "Submitted At", key: "createdAt", width: 20 },
     { header: "Resolved At", key: "arrivedAt", width: 20 },
     { header: "Discharged At", key: "dischargedAt", width: 20 },
+    { header: "Panel", key: "panel", width: 26 },
   ];
   sheet.getRow(1).font = { bold: true };
 
@@ -215,6 +433,7 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
       createdAt: formatDateTime(r.createdAt),
       arrivedAt: r.arrivedAt ? formatDateTime(r.arrivedAt) : "",
       dischargedAt: r.dischargedAt ? formatDateTime(r.dischargedAt) : "",
+      panel: r.panel || "",
     });
   }
 

@@ -65,7 +65,7 @@ body {
 }
 
 .container-wide {
-  max-width: 1400px;
+  max-width: min(1900px, 96vw);
   margin: 0 auto;
   padding: 24px 32px;
 }

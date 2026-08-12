@@ -133,6 +133,10 @@ model Referral {
   // Set by reception when the patient is discharged. Only meaningful once CREDITED;
   // shown to the referring leader so they know the visit is fully wrapped up.
   dischargedAt    DateTime?
+  // Insurance company / TPA / government scheme / corporate account this patient's
+  // treatment is billed against (e.g. CGHS, ESIC, a named insurer). Set by reception,
+  // usually once the file number is known. Free text so new panels don't need a code change.
+  panel           String?
 
   createdAt       DateTime       @default(now())
 

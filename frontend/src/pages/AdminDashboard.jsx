@@ -18,7 +18,9 @@ import RedeemModal from "../components/RedeemModal";
 import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import BulkImportLeadersModal from "../components/BulkImportLeadersModal";
+import BulkImportReferralsModal from "../components/BulkImportReferralsModal";
 import AddPatientModal from "../components/AddPatientModal";
+import { PANEL_OPTIONS } from "../utils/panels";
 import QrModal from "../components/QrModal";
 
 const NAV_ITEMS = [
@@ -60,6 +62,7 @@ export default function AdminDashboard() {
 
   const [showDoctorForm, setShowDoctorForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [showBulkImportReferrals, setShowBulkImportReferrals] = useState(false);
   const [doctorForm, setDoctorForm] = useState({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", creditAmount: 0 });
   const [newDoctorQr, setNewDoctorQr] = useState(null);
   const [qrModalDoctor, setQrModalDoctor] = useState(null);
@@ -370,6 +373,15 @@ export default function AdminDashboard() {
       loadReferrals();
     } catch (err) {
       setMessage(err.response?.data?.error || "Failed to mark as discharged");
+    }
+  }
+
+  async function updatePanel(referralId, panel) {
+    try {
+      await api.patch(`/referrals/${referralId}/panel`, { panel: panel || null });
+      loadReferrals();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to update panel");
     }
   }
 
@@ -858,9 +870,11 @@ export default function AdminDashboard() {
                                 {r.staffCount} {expandedRoleId === r.id ? "▲" : "▼"}
                               </button>
                             </td>
-                            <td style={{ display: "flex", gap: 6 }}>
-                              <button className="secondary" style={{ width: "auto", padding: "6px 10px" }} onClick={() => startEditRole(r)}>Edit</button>
-                              <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => deleteRole(r.id, r.name)}><Trash2 size={14} />Remove</button>
+                            <td>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button className="secondary" style={{ width: "auto", padding: "6px 10px" }} onClick={() => startEditRole(r)}>Edit</button>
+                                <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => deleteRole(r.id, r.name)}><Trash2 size={14} />Remove</button>
+                              </div>
                             </td>
                           </tr>
                           {expandedRoleId === r.id && (
@@ -930,11 +944,13 @@ export default function AdminDashboard() {
                       <td>{s.name}</td>
                       <td>{s.email}</td>
                       <td>{s.role === "STAFF" ? (s.customRole?.name || "Custom role") : s.role}</td>
-                      <td style={{ display: "flex", gap: 6 }}>
-                        <button className="secondary" style={{ width: "auto", padding: "6px 10px" }} onClick={() => resetStaffPassword(s.id, s.name)}><KeyRound size={14} />Reset password</button>
-                        {s.id !== user?.id && (
-                          <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => deleteStaff(s.id, s.name)}><Trash2 size={14} />Remove</button>
-                        )}
+                      <td>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="secondary" style={{ width: "auto", padding: "6px 10px" }} onClick={() => resetStaffPassword(s.id, s.name)}><KeyRound size={14} />Reset password</button>
+                          {s.id !== user?.id && (
+                            <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => deleteStaff(s.id, s.name)}><Trash2 size={14} />Remove</button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -962,6 +978,7 @@ export default function AdminDashboard() {
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={{ width: "auto", padding: "6px 14px" }} onClick={() => setShowAddPatient(true)}><UserPlus size={14} />Add patient</button>
+                <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setShowBulkImportReferrals(true)}><Upload size={14} />Bulk import</button>
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => exportReferrals("excel")}><Download size={14} />Excel</button>
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => exportReferrals("pdf")}><Download size={14} />PDF</button>
               </div>
@@ -993,7 +1010,7 @@ export default function AdminDashboard() {
               <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Location</th><th>Submitted</th><th></th></tr>
+                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th><th></th></tr>
                 </thead>
                 <tbody>
                   {referrals.map((r) => (
@@ -1014,6 +1031,18 @@ export default function AdminDashboard() {
                       </td>
                       <td>{r.dischargedAt ? formatDateTime(r.dischargedAt) : "—"}</td>
                       <td>
+                        <select
+                          value={r.panel || ""}
+                          onChange={(e) => updatePanel(r.id, e.target.value)}
+                          style={{ minWidth: 140, fontSize: 13, padding: "6px 8px" }}
+                        >
+                          <option value="">— None —</option>
+                          {PANEL_OPTIONS.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
                         {r.scanLatitude != null ? (
                           <a href={`https://www.google.com/maps?q=${r.scanLatitude},${r.scanLongitude}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                             <MapPin size={13} />
@@ -1024,27 +1053,29 @@ export default function AdminDashboard() {
                         )}
                       </td>
                       <td>{formatDate(r.createdAt)}</td>
-                      <td className="row-hover-actions" style={{ display: "flex", gap: 6 }}>
-                        {r.status === "PENDING" && (
-                          <>
-                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
-                            <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
-                          </>
-                        )}
-                        {r.status === "CREDITED" && r.visitType === "OPD" && (
-                          <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
-                        )}
-                        {r.status === "CREDITED" && !r.dischargedAt && (
-                          <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
-                        )}
-                        {r.status === "REJECTED" && (
-                          <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => revertReferral(r.id)}><RotateCcw size={14} />Revert</button>
-                        )}
-                        {r.transaction && !r.transaction.redeemed && (
-                          <button className="btn-redeem" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setRedeemModal({ mode: "single", referral: r, defaultAmount: Number(r.transaction.amount) })}>
-                            <Wallet size={14} />Redeem
-                          </button>
-                        )}
+                      <td className="row-hover-actions" style={{ whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {r.status === "PENDING" && (
+                            <>
+                              <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConfirmModal(r)}><CheckCircle2 size={14} />Confirm</button>
+                              <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => reject(r.id)}><XCircle size={14} />Reject</button>
+                            </>
+                          )}
+                          {r.status === "CREDITED" && r.visitType === "OPD" && (
+                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => openConvertModal(r)}><ArrowUpCircle size={14} />Convert to IPD</button>
+                          )}
+                          {r.status === "CREDITED" && !r.dischargedAt && (
+                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => discharge(r)}><LogOut size={14} />Discharge</button>
+                          )}
+                          {r.status === "REJECTED" && (
+                            <button style={{ width: "auto", padding: "6px 10px" }} onClick={() => revertReferral(r.id)}><RotateCcw size={14} />Revert</button>
+                          )}
+                          {r.transaction && !r.transaction.redeemed && (
+                            <button className="btn-redeem" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setRedeemModal({ mode: "single", referral: r, defaultAmount: Number(r.transaction.amount) })}>
+                              <Wallet size={14} />Redeem
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1105,6 +1136,12 @@ export default function AdminDashboard() {
         <BulkImportLeadersModal
           onClose={() => setShowBulkImport(false)}
           onImported={loadDoctorsAndStaff}
+        />
+      )}
+      {showBulkImportReferrals && (
+        <BulkImportReferralsModal
+          onClose={() => setShowBulkImportReferrals(false)}
+          onImported={() => { loadReferrals(); loadDoctorsAndStaff(); loadDashboard(); }}
         />
       )}
       {showAddPatient && (
