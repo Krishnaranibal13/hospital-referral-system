@@ -16,6 +16,7 @@ const doctorSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   clinicName: z.string().optional(),
   city: z.string().optional(),
+  marketingPersonName: z.string().optional(),
   creditAmount: z.number().nonnegative().default(0),
 });
 
@@ -76,11 +77,12 @@ router.get("/bulk-import/template", requireAuth, requireRole("ADMIN"), async (re
     { header: "Phone", key: "phone", width: 16 },
     { header: "Clinic Name", key: "clinicName", width: 24 },
     { header: "City", key: "city", width: 18 },
+    { header: "Marketing Person", key: "marketingPersonName", width: 22 },
   ];
   sheet.getRow(1).font = { bold: true };
-  sheet.addRow({ name: "Dr. Anita Sharma", specialty: "Ophthalmologist", phone: "9876543210", clinicName: "Sharma Eye Clinic", city: "Greater Noida" });
-  sheet.addRow({ name: "Ramesh Kumar", specialty: "Ambulance Staff", phone: "9876500000", clinicName: "", city: "Greater Noida" });
-  sheet.addRow({ name: "Suresh Yadav", specialty: "Village Pradhan", phone: "9876511111", clinicName: "", city: "Dadri" });
+  sheet.addRow({ name: "Dr. Anita Sharma", specialty: "Ophthalmologist", phone: "9876543210", clinicName: "Sharma Eye Clinic", city: "Greater Noida", marketingPersonName: "Rohit Verma" });
+  sheet.addRow({ name: "Ramesh Kumar", specialty: "Ambulance Staff", phone: "9876500000", clinicName: "", city: "Greater Noida", marketingPersonName: "" });
+  sheet.addRow({ name: "Suresh Yadav", specialty: "Village Pradhan", phone: "9876511111", clinicName: "", city: "Dadri", marketingPersonName: "" });
 
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", "attachment; filename=leader-bulk-import-template.xlsx");
@@ -121,6 +123,7 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
   const phoneCol = findCol("phone", "mobile", "mobile number", "mob number", "mob no", "phone number");
   const clinicCol = findCol("clinic name", "clinic");
   const cityCol = findCol("city");
+  const marketingPersonCol = findCol("marketing person", "marketing person name", "through", "associated with");
 
   if (!nameCol || !phoneCol) {
     return res.status(400).json({
@@ -152,6 +155,7 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
           specialty: getCell(row, specialtyCol) || null,
           clinicName: getCell(row, clinicCol) || null,
           city: getCell(row, cityCol) || null,
+          marketingPersonName: getCell(row, marketingPersonCol) || null,
           hospitalId: req.user.hospitalId,
         },
       });
@@ -263,7 +267,7 @@ router.get("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
 
 // PATCH /api/doctors/:id  (admin) - update doctor details, own hospital only
 router.patch("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
-  const allowed = ["name", "specialty", "phone", "email", "clinicName", "city", "creditAmount", "active"];
+  const allowed = ["name", "specialty", "phone", "email", "clinicName", "city", "marketingPersonName", "creditAmount", "active"];
   const data = {};
   for (const key of allowed) {
     if (key in req.body) data[key] = req.body[key];

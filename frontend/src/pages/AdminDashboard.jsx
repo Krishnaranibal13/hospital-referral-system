@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -19,6 +19,7 @@ import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import BulkImportLeadersModal from "../components/BulkImportLeadersModal";
 import BulkImportReferralsModal from "../components/BulkImportReferralsModal";
+import EditLeaderModal from "../components/EditLeaderModal";
 import AddPatientModal from "../components/AddPatientModal";
 import { PANEL_OPTIONS } from "../utils/panels";
 import QrModal from "../components/QrModal";
@@ -63,7 +64,8 @@ export default function AdminDashboard() {
   const [showDoctorForm, setShowDoctorForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showBulkImportReferrals, setShowBulkImportReferrals] = useState(false);
-  const [doctorForm, setDoctorForm] = useState({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", creditAmount: 0 });
+  const [editingLeader, setEditingLeader] = useState(null);
+  const [doctorForm, setDoctorForm] = useState({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", marketingPersonName: "", creditAmount: 0 });
   const [newDoctorQr, setNewDoctorQr] = useState(null);
   const [qrModalDoctor, setQrModalDoctor] = useState(null);
   const [qrLoadingId, setQrLoadingId] = useState(null);
@@ -174,7 +176,7 @@ export default function AdminDashboard() {
       const { data } = await api.post("/doctors", { ...doctorForm, creditAmount: Number(doctorForm.creditAmount) });
       setNewDoctorQr(data);
       setQrModalDoctor(data);
-      setDoctorForm({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", creditAmount: 0 });
+      setDoctorForm({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", marketingPersonName: "", creditAmount: 0 });
       setShowDoctorForm(false);
       loadDoctorsAndStaff();
       loadDashboard();
@@ -715,6 +717,8 @@ export default function AdminDashboard() {
                 <input value={doctorForm.clinicName} onChange={(e) => setDoctorForm({ ...doctorForm, clinicName: e.target.value })} />
                 <label>City (optional)</label>
                 <input value={doctorForm.city} onChange={(e) => setDoctorForm({ ...doctorForm, city: e.target.value })} />
+                <label>Marketing person (optional)</label>
+                <input value={doctorForm.marketingPersonName} onChange={(e) => setDoctorForm({ ...doctorForm, marketingPersonName: e.target.value })} placeholder="Hospital marketing team member associated with this leader" />
                 <p style={{ color: "var(--ink-soft)", fontSize: 12, marginTop: -8 }}>
                   Credit amounts are set once for the whole hospital under Dashboard → Lead credit amounts (IPD/OPD), not per leader.
                 </p>
@@ -778,6 +782,7 @@ export default function AdminDashboard() {
                               <div>
                                 <div style={{ fontWeight: 600 }}>{d.name}</div>
                                 <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{d.specialty || "General"} · {d.clinicName || "—"}</div>
+                                <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>Through: {d.marketingPersonName || "—"}</div>
                               </div>
                             </div>
                           </td>
@@ -795,6 +800,7 @@ export default function AdminDashboard() {
                           <td>
                             <DropdownMenu
                               items={[
+                                { label: "Edit", icon: Pencil, onClick: () => setEditingLeader(d) },
                                 { label: qrLoadingId === d.id ? "Loading QR…" : "View QR", icon: Eye, onClick: () => handleViewQr(d.id) },
                                 { label: d.active ? "Deactivate" : "Activate", icon: Power, onClick: () => toggleDoctorActive(d) },
                                 ...(Number(d.totalPending) > 0
@@ -1010,7 +1016,7 @@ export default function AdminDashboard() {
               <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th><th></th></tr>
+                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Through</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th><th></th></tr>
                 </thead>
                 <tbody>
                   {referrals.map((r) => (
@@ -1021,6 +1027,7 @@ export default function AdminDashboard() {
                       <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                       <td>{r.patientPhone || "—"}</td>
                       <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
+                      <td>{r.doctor?.marketingPersonName || "—"}</td>
                       <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                       <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
                       <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
@@ -1142,6 +1149,13 @@ export default function AdminDashboard() {
         <BulkImportReferralsModal
           onClose={() => setShowBulkImportReferrals(false)}
           onImported={() => { loadReferrals(); loadDoctorsAndStaff(); loadDashboard(); }}
+        />
+      )}
+      {editingLeader && (
+        <EditLeaderModal
+          leader={editingLeader}
+          onClose={() => setEditingLeader(null)}
+          onSaved={() => { setEditingLeader(null); setMessage("Leader updated."); loadDoctorsAndStaff(); }}
         />
       )}
       {showAddPatient && (

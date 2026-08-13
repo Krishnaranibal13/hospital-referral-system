@@ -85,6 +85,10 @@ model Doctor {
 
   name          String
   specialty     String?
+  // The hospital's marketing-team employee this leader is associated with — usually the
+  // person who built/maintains the relationship. Left blank for the ~10% of leaders with
+  // no such association. Free text, not tied to a StaffUser account.
+  marketingPersonName String?
   // Optional: a leader can be quick-added by name only from the "Add patient" flow
   // (reception may not have their phone on hand yet); can be filled in later.
   phone         String?

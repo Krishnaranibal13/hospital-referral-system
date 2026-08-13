@@ -269,7 +269,7 @@ export default function StaffPortal() {
               <table>
                 <thead>
                   <tr>
-                    <th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th>
+                    <th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Referred by</th><th>Through</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th>
                     {showActionsColumn && <th></th>}
                   </tr>
                 </thead>
@@ -281,6 +281,7 @@ export default function StaffPortal() {
                       <td>{r.patientAge}</td>
                       <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                       <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
+                      <td>{r.doctor?.marketingPersonName || "—"}</td>
                       <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                       <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
                       <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
@@ -334,7 +335,7 @@ export default function StaffPortal() {
                     </tr>
                   ))}
                   {referrals.length === 0 && !loading && (
-                    <tr><td colSpan={showActionsColumn ? 14 : 13} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
+                    <tr><td colSpan={showActionsColumn ? 15 : 14} style={{ color: "var(--ink-soft)" }}>No referrals found.</td></tr>
                   )}
                 </tbody>
               </table>
