@@ -45,6 +45,7 @@ export const PANEL_OPTIONS = [
   "CGHS",
   "ESIC",
   "ECHS",
+  "Cash",
   "Care Health Insurance.",
   "G.k Winding wires .Ltd- Geekay",
   "AYUSHMAN CAPF",
