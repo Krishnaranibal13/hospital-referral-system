@@ -372,20 +372,30 @@ router.patch("/:id/panel", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
   res.json(updated);
 });
 
-// GET /api/referrals?search=name_or_phone&status=PENDING  (reception + admin)
+// GET /api/referrals?search=name_or_phone&status=PENDING&page=1&pageSize=50  (reception + admin)
 // Scoped to the logged-in staff member's own hospital, via each referral's doctor.
+// Paginated server-side — returns { referrals, total, page, pageSize } rather than a raw
+// array, so large historical imports (500+ rows) don't get silently truncated.
 router.get("/", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["VIEW_REFERRALS", "MANAGE_REFERRALS"]), async (req, res) => {
-  const referrals = await prisma.referral.findMany({
-    where: buildWhere(req),
-    include: {
-      doctor: { select: { name: true, clinicName: true, phone: true, creditAmount: true, marketingPersonName: true } },
-      transaction: { select: { id: true, amount: true, redeemed: true, redeemedAt: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 50));
+  const where = buildWhere(req);
 
-  res.json(referrals);
+  const [referrals, total] = await Promise.all([
+    prisma.referral.findMany({
+      where,
+      include: {
+        doctor: { select: { name: true, clinicName: true, phone: true, creditAmount: true, marketingPersonName: true } },
+        transaction: { select: { id: true, amount: true, redeemed: true, redeemedAt: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.referral.count({ where }),
+  ]);
+
+  res.json({ referrals, total, page, pageSize });
 });
 
 // GET /api/referrals/export/excel  (admin) — respects the same search/status filters as the list view

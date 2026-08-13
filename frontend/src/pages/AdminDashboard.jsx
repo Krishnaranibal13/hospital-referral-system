@@ -45,12 +45,15 @@ const REFERRAL_TABS = [
 ];
 const DOCTORS_PAGE_SIZE = 8;
 const RECENT_PAGE_SIZE = 7;
+const REFERRALS_PAGE_SIZE = 50;
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [doctors, setDoctors] = useState([]);
   const [staff, setStaff] = useState([]);
   const [referrals, setReferrals] = useState([]);
+  const [referralTotal, setReferralTotal] = useState(0);
+  const [referralPage, setReferralPage] = useState(1);
   const [referralTab, setReferralTab] = useState("PENDING");
   const [referralSearch, setReferralSearch] = useState("");
   const [referralDoctorId, setReferralDoctorId] = useState("");
@@ -132,9 +135,12 @@ export default function AdminDashboard() {
         doctorId: referralDoctorId || undefined,
         from: referralDateFrom || undefined,
         to: referralDateTo || undefined,
+        page: referralPage,
+        pageSize: REFERRALS_PAGE_SIZE,
       },
     });
-    setReferrals(data);
+    setReferrals(data.referrals);
+    setReferralTotal(data.total);
   }
 
   async function loadHospitalSettings() {
@@ -165,7 +171,8 @@ export default function AdminDashboard() {
   }
 
   useEffect(() => { loadDoctorsAndStaff(); loadDashboard(); loadHospitalSettings(); }, []);
-  useEffect(() => { if (activeTab === "All Referrals") loadReferrals(); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo]);
+  useEffect(() => { if (activeTab === "All Referrals") setReferralPage(1); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo]);
+  useEffect(() => { if (activeTab === "All Referrals") loadReferrals(); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo, referralPage]);
   useEffect(() => { setDoctorPage(1); }, [doctorSearch, doctorStatusFilter, doctorDateFrom, doctorDateTo]);
   useEffect(() => { setRecentPage(1); }, [dashboardData]);
 
@@ -448,6 +455,7 @@ export default function AdminDashboard() {
   }, [doctors, doctorSearch, doctorStatusFilter, doctorDateFrom, doctorDateTo, sortKey, sortDir]);
 
   const doctorPageCount = Math.max(1, Math.ceil(filteredSortedDoctors.length / DOCTORS_PAGE_SIZE));
+  const referralPageCount = Math.max(1, Math.ceil(referralTotal / REFERRALS_PAGE_SIZE));
   const recentPageCount = Math.max(1, Math.ceil((dashboardData?.recentReferrals?.length || 0) / RECENT_PAGE_SIZE));
   const paginatedDoctors = filteredSortedDoctors.slice((doctorPage - 1) * DOCTORS_PAGE_SIZE, doctorPage * DOCTORS_PAGE_SIZE);
 
@@ -989,6 +997,11 @@ export default function AdminDashboard() {
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => exportReferrals("pdf")}><Download size={14} />PDF</button>
               </div>
             </div>
+            {referralTotal > 0 && (
+              <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: -4 }}>
+                Showing {(referralPage - 1) * REFERRALS_PAGE_SIZE + 1}–{Math.min(referralPage * REFERRALS_PAGE_SIZE, referralTotal)} of {referralTotal}
+              </p>
+            )}
 
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
               <div style={{ flex: 1, minWidth: 200, maxWidth: 360 }}>
@@ -1006,8 +1019,8 @@ export default function AdminDashboard() {
 
             <label>Search by patient name or phone</label>
             <div style={{ display: "flex", gap: 8 }}>
-              <input value={referralSearch} onChange={(e) => setReferralSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && loadReferrals()} placeholder="e.g. Ramesh or 98765..." />
-              <button style={{ width: 120 }} onClick={loadReferrals}><Search size={15} />Search</button>
+              <input value={referralSearch} onChange={(e) => setReferralSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (referralPage === 1 ? loadReferrals() : setReferralPage(1))} placeholder="e.g. Ramesh or 98765..." />
+              <button style={{ width: 120 }} onClick={() => (referralPage === 1 ? loadReferrals() : setReferralPage(1))}><Search size={15} />Search</button>
             </div>
 
             {referrals.length === 0 ? (
@@ -1088,6 +1101,15 @@ export default function AdminDashboard() {
                   ))}
                 </tbody>
               </table></div>
+            )}
+            {referralPageCount > 1 && (
+              <div className="pagination">
+                <button disabled={referralPage === 1} onClick={() => setReferralPage((p) => p - 1)}><ChevronLeft size={14} /></button>
+                {Array.from({ length: referralPageCount }, (_, i) => i + 1).map((p) => (
+                  <button key={p} className={p === referralPage ? "active" : ""} onClick={() => setReferralPage(p)}>{p}</button>
+                ))}
+                <button disabled={referralPage === referralPageCount} onClick={() => setReferralPage((p) => p + 1)}><ChevronRight size={14} /></button>
+              </div>
             )}
           </div>
         )}

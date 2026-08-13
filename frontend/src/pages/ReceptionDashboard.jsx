@@ -44,9 +44,11 @@ export default function ReceptionDashboard() {
           doctorId: doctorId || undefined,
           from: dateFrom || undefined,
           to: dateTo || undefined,
+          page: 1,
+          pageSize: 100,
         },
       });
-      setReferrals(data);
+      setReferrals(data.referrals);
     } finally {
       setLoading(false);
     }
