@@ -385,7 +385,7 @@ router.get("/", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["VIEW_REFERR
     prisma.referral.findMany({
       where,
       include: {
-        doctor: { select: { name: true, clinicName: true, phone: true, creditAmount: true, marketingPersonName: true } },
+        doctor: { select: { name: true, clinicName: true, phone: true, creditAmount: true, marketingPerson: { select: { id: true, name: true } } } },
         transaction: { select: { id: true, amount: true, redeemed: true, redeemedAt: true } },
       },
       orderBy: { createdAt: "desc" },

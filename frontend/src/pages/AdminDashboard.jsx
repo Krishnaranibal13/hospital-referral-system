@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -23,10 +23,13 @@ import EditLeaderModal from "../components/EditLeaderModal";
 import AddPatientModal from "../components/AddPatientModal";
 import { PANEL_OPTIONS } from "../utils/panels";
 import QrModal from "../components/QrModal";
+import MarketingPersonModal from "../components/MarketingPersonModal";
+import MarketingPersonDetailModal from "../components/MarketingPersonDetailModal";
 
 const NAV_ITEMS = [
   { key: "Dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "Doctors", label: "Leaders", icon: Stethoscope },
+  { key: "Marketing", label: "Marketing Team", icon: Megaphone },
   { key: "Staff", label: "Staff", icon: Users },
   { key: "All Referrals", label: "All Referrals", icon: ClipboardList },
 ];
@@ -68,7 +71,8 @@ export default function AdminDashboard() {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showBulkImportReferrals, setShowBulkImportReferrals] = useState(false);
   const [editingLeader, setEditingLeader] = useState(null);
-  const [doctorForm, setDoctorForm] = useState({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", marketingPersonName: "", creditAmount: 0 });
+  const [doctorForm, setDoctorForm] = useState({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", marketingPersonId: "", creditAmount: 0 });
+  const [marketingPersons, setMarketingPersons] = useState([]);
   const [newDoctorQr, setNewDoctorQr] = useState(null);
   const [qrModalDoctor, setQrModalDoctor] = useState(null);
   const [qrLoadingId, setQrLoadingId] = useState(null);
@@ -80,6 +84,15 @@ export default function AdminDashboard() {
   const [sortKey, setSortKey] = useState("createdAt");
   const [sortDir, setSortDir] = useState("desc");
   const [doctorPage, setDoctorPage] = useState(1);
+
+  const [marketingList, setMarketingList] = useState([]);
+  const [marketingSearch, setMarketingSearch] = useState("");
+  const [marketingSortKey, setMarketingSortKey] = useState("createdAt");
+  const [marketingSortDir, setMarketingSortDir] = useState("desc");
+  const [marketingPage, setMarketingPage] = useState(1);
+  const [showMarketingForm, setShowMarketingForm] = useState(false);
+  const [editingMarketingPerson, setEditingMarketingPerson] = useState(null);
+  const [viewingMarketingPersonId, setViewingMarketingPersonId] = useState(null);
 
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: "", email: "", password: "", roleSelection: "RECEPTION" });
@@ -105,10 +118,13 @@ export default function AdminDashboard() {
 
   async function loadDoctorsAndStaff() {
     try {
-      const [doctorsRes, staffRes, rolesRes] = await Promise.all([api.get("/doctors"), api.get("/staff"), api.get("/staff/roles")]);
+      const [doctorsRes, staffRes, rolesRes, marketingRes] = await Promise.all([
+        api.get("/doctors"), api.get("/staff"), api.get("/staff/roles"), api.get("/marketing-persons/lite"),
+      ]);
       setDoctors(doctorsRes.data);
       setStaff(staffRes.data);
       setCustomRoles(rolesRes.data);
+      setMarketingPersons(marketingRes.data);
     } catch (err) {
       setError(err.response?.data?.error || "Failed to load doctors/staff. Check the console for details.");
       console.error("loadDoctorsAndStaff failed:", err);
@@ -170,7 +186,17 @@ export default function AdminDashboard() {
     }
   }
 
+  async function loadMarketingList() {
+    try {
+      const { data } = await api.get("/marketing-persons");
+      setMarketingList(data);
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to load marketing team.");
+    }
+  }
+
   useEffect(() => { loadDoctorsAndStaff(); loadDashboard(); loadHospitalSettings(); }, []);
+  useEffect(() => { if (activeTab === "Marketing") loadMarketingList(); }, [activeTab]);
   useEffect(() => { if (activeTab === "All Referrals") setReferralPage(1); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo]);
   useEffect(() => { if (activeTab === "All Referrals") loadReferrals(); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo, referralPage]);
   useEffect(() => { setDoctorPage(1); }, [doctorSearch, doctorStatusFilter, doctorDateFrom, doctorDateTo]);
@@ -183,7 +209,7 @@ export default function AdminDashboard() {
       const { data } = await api.post("/doctors", { ...doctorForm, creditAmount: Number(doctorForm.creditAmount) });
       setNewDoctorQr(data);
       setQrModalDoctor(data);
-      setDoctorForm({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", marketingPersonName: "", creditAmount: 0 });
+      setDoctorForm({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", marketingPersonId: "", creditAmount: 0 });
       setShowDoctorForm(false);
       loadDoctorsAndStaff();
       loadDashboard();
@@ -459,6 +485,45 @@ export default function AdminDashboard() {
   const recentPageCount = Math.max(1, Math.ceil((dashboardData?.recentReferrals?.length || 0) / RECENT_PAGE_SIZE));
   const paginatedDoctors = filteredSortedDoctors.slice((doctorPage - 1) * DOCTORS_PAGE_SIZE, doctorPage * DOCTORS_PAGE_SIZE);
 
+  function toggleMarketingSort(key) {
+    if (marketingSortKey === key) setMarketingSortDir(marketingSortDir === "asc" ? "desc" : "asc");
+    else { setMarketingSortKey(key); setMarketingSortDir("asc"); }
+  }
+
+  const filteredSortedMarketing = useMemo(() => {
+    let list = marketingList.filter((m) => {
+      if (marketingSearch) {
+        const q = marketingSearch.toLowerCase();
+        return m.name.toLowerCase().includes(q) || (m.phone || "").toLowerCase().includes(q);
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      let av = a[marketingSortKey], bv = b[marketingSortKey];
+      if (marketingSortKey === "createdAt" || marketingSortKey === "lastReferralAt") { av = av ? new Date(av).getTime() : 0; bv = bv ? new Date(bv).getTime() : 0; }
+      if (typeof av === "string") { av = av.toLowerCase(); bv = (bv || "").toLowerCase(); }
+      if (av < bv) return marketingSortDir === "asc" ? -1 : 1;
+      if (av > bv) return marketingSortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [marketingList, marketingSearch, marketingSortKey, marketingSortDir]);
+
+  const MARKETING_PAGE_SIZE = 10;
+  const marketingPageCount = Math.max(1, Math.ceil(filteredSortedMarketing.length / MARKETING_PAGE_SIZE));
+  const paginatedMarketing = filteredSortedMarketing.slice((marketingPage - 1) * MARKETING_PAGE_SIZE, marketingPage * MARKETING_PAGE_SIZE);
+
+  function MarketingSortHeader({ label, sk }) {
+    return (
+      <th className="sortable" onClick={() => toggleMarketingSort(sk)}>
+        {label}
+        <span className="sort-arrow">
+          {marketingSortKey === sk ? (marketingSortDir === "asc" ? <ChevronUp size={12} style={{ display: "inline" }} /> : <ChevronDown size={12} style={{ display: "inline" }} />) : ""}
+        </span>
+      </th>
+    );
+  }
+
   const pendingReferralsBadge = dashboardData?.kpis?.pendingReferrals || 0;
 
   function SortHeader({ label, sk }) {
@@ -489,7 +554,7 @@ export default function AdminDashboard() {
       <div className="main-area">
         <div className="page-header">
           <div>
-            <h2>{activeTab}</h2>
+            <h2>{NAV_ITEMS.find((n) => n.key === activeTab)?.label || activeTab}</h2>
             <p>{user?.hospitalName}{user?.hospitalBranchName ? ` · ${user.hospitalBranchName}` : ""}</p>
           </div>
         </div>
@@ -537,28 +602,38 @@ export default function AdminDashboard() {
                 <div className="kpi-grid">
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "var(--navy-700)" }}><Stethoscope size={18} /></div>
-                    <div className="kpi-label">Total Doctors</div>
-                    <div className="kpi-value">{dashboardData.kpis.totalDoctors}</div>
+                    <div>
+                      <div className="kpi-label">Total Doctors</div>
+                      <div className="kpi-value">{dashboardData.kpis.totalDoctors}</div>
+                    </div>
                   </div>
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "var(--green-600)" }}><UserCheck size={18} /></div>
-                    <div className="kpi-label">Active Doctors</div>
-                    <div className="kpi-value">{dashboardData.kpis.activeDoctors}</div>
+                    <div>
+                      <div className="kpi-label">Active Doctors</div>
+                      <div className="kpi-value">{dashboardData.kpis.activeDoctors}</div>
+                    </div>
                   </div>
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "var(--teal-600)" }}><ClipboardList size={18} /></div>
-                    <div className="kpi-label">Total Referrals</div>
-                    <div className="kpi-value">{dashboardData.kpis.totalReferrals}</div>
+                    <div>
+                      <div className="kpi-label">Total Referrals</div>
+                      <div className="kpi-value">{dashboardData.kpis.totalReferrals}</div>
+                    </div>
                   </div>
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "#b45309" }}><Clock size={18} /></div>
-                    <div className="kpi-label">Pending Payouts</div>
-                    <div className="kpi-value">{dashboardData.kpis.totalPendingPayouts.toFixed(2)} pts</div>
+                    <div>
+                      <div className="kpi-label">Pending Payouts</div>
+                      <div className="kpi-value">{dashboardData.kpis.totalPendingPayouts.toFixed(2)} pts</div>
+                    </div>
                   </div>
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "var(--teal-700)" }}><IndianRupee size={18} /></div>
-                    <div className="kpi-label">Total Credits Redeemed</div>
-                    <div className="kpi-value">{dashboardData.kpis.totalCreditsRedeemed.toFixed(2)} pts</div>
+                    <div>
+                      <div className="kpi-label">Total Credits Redeemed</div>
+                      <div className="kpi-value">{dashboardData.kpis.totalCreditsRedeemed.toFixed(2)} pts</div>
+                    </div>
                   </div>
                 </div>
 
@@ -726,7 +801,12 @@ export default function AdminDashboard() {
                 <label>City (optional)</label>
                 <input value={doctorForm.city} onChange={(e) => setDoctorForm({ ...doctorForm, city: e.target.value })} />
                 <label>Marketing person (optional)</label>
-                <input value={doctorForm.marketingPersonName} onChange={(e) => setDoctorForm({ ...doctorForm, marketingPersonName: e.target.value })} placeholder="Hospital marketing team member associated with this leader" />
+                <select value={doctorForm.marketingPersonId} onChange={(e) => setDoctorForm({ ...doctorForm, marketingPersonId: e.target.value })}>
+                  <option value="">— None —</option>
+                  {marketingPersons.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
                 <p style={{ color: "var(--ink-soft)", fontSize: 12, marginTop: -8 }}>
                   Credit amounts are set once for the whole hospital under Dashboard → Lead credit amounts (IPD/OPD), not per leader.
                 </p>
@@ -790,7 +870,7 @@ export default function AdminDashboard() {
                               <div>
                                 <div style={{ fontWeight: 600 }}>{d.name}</div>
                                 <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{d.specialty || "General"} · {d.clinicName || "—"}</div>
-                                <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>Through: {d.marketingPersonName || "—"}</div>
+                                <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>Through: {d.marketingPerson?.name || "—"}</div>
                               </div>
                             </div>
                           </td>
@@ -830,6 +910,104 @@ export default function AdminDashboard() {
                       <button key={p} className={p === doctorPage ? "active" : ""} onClick={() => setDoctorPage(p)}>{p}</button>
                     ))}
                     <button disabled={doctorPage === doctorPageCount} onClick={() => setDoctorPage((p) => p + 1)}><ChevronRight size={14} /></button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ==================== MARKETING TEAM ==================== */}
+        {activeTab === "Marketing" && (
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <h3 style={{ margin: 0 }}>Marketing Team</h3>
+              <button style={{ width: "auto", padding: "8px 16px" }} onClick={() => { setEditingMarketingPerson(null); setShowMarketingForm(true); }}>
+                <UserPlus size={16} />Add marketing person
+              </button>
+            </div>
+            <p style={{ color: "var(--ink-soft)", fontSize: 13, marginTop: -6 }}>
+              Every leader is optionally associated with one of these hospital marketing-team members. Click a row for their full report.
+            </p>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 16, marginBottom: 8 }}>
+              <div style={{ position: "relative", flex: 1 }}>
+                <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--ink-soft)" }} />
+                <input style={{ paddingLeft: 34 }} value={marketingSearch} onChange={(e) => { setMarketingSearch(e.target.value); setMarketingPage(1); }} placeholder="Name or phone…" />
+              </div>
+            </div>
+
+            {filteredSortedMarketing.length === 0 ? (
+              <EmptyState
+                icon={Megaphone}
+                title={marketingList.length === 0 ? "No marketing team members yet" : "No matches"}
+                subtitle={marketingList.length === 0 ? "Add your hospital's marketing-team members, then associate leaders with them from the Leaders tab" : "Try a different search"}
+              />
+            ) : (
+              <>
+                <div className="table-wrap">
+                  <table style={{ marginTop: 8 }}>
+                    <thead>
+                      <tr>
+                        <MarketingSortHeader label="Name" sk="name" />
+                        <MarketingSortHeader label="Leaders" sk="leaderCount" />
+                        <MarketingSortHeader label="Total Leads" sk="totalReferrals" />
+                        <MarketingSortHeader label="Total Credited" sk="totalCredited" />
+                        <MarketingSortHeader label="Pending Payout" sk="totalPending" />
+                        <MarketingSortHeader label="Last Referral" sk="lastReferralAt" />
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedMarketing.map((m) => (
+                        <tr key={m.id} style={{ cursor: "pointer" }} onClick={() => setViewingMarketingPersonId(m.id)}>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{m.name}</div>
+                            <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{m.phone || "—"}</div>
+                          </td>
+                          <td>{m.leaderCount}</td>
+                          <td>{m.totalReferrals}</td>
+                          <td>{m.totalCredited.toFixed(2)} pts</td>
+                          <td>
+                            {m.totalPending > 0 ? (
+                              <span className="chip pending">{m.totalPending.toFixed(2)} pts</span>
+                            ) : (
+                              <span className="chip redeemed">0.00 pts</span>
+                            )}
+                          </td>
+                          <td>{m.lastReferralAt ? formatDateTime(m.lastReferralAt) : "—"}</td>
+                          <td><span className={`badge ${m.active ? "CREDITED" : "REJECTED"}`}>{m.active ? "Active" : "Inactive"}</span></td>
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button className="secondary" style={{ width: "auto", padding: "6px 10px" }} onClick={() => { setEditingMarketingPerson(m); setShowMarketingForm(true); }}>
+                                <Pencil size={14} />Edit
+                              </button>
+                              <button
+                                className="secondary"
+                                style={{ width: "auto", padding: "6px 10px" }}
+                                onClick={async () => {
+                                  await api.patch(`/marketing-persons/${m.id}`, { active: !m.active });
+                                  loadMarketingList();
+                                }}
+                              >
+                                {m.active ? "Deactivate" : "Activate"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {marketingPageCount > 1 && (
+                  <div className="pagination">
+                    <button disabled={marketingPage === 1} onClick={() => setMarketingPage((p) => p - 1)}><ChevronLeft size={14} /></button>
+                    {Array.from({ length: marketingPageCount }, (_, i) => i + 1).map((p) => (
+                      <button key={p} className={p === marketingPage ? "active" : ""} onClick={() => setMarketingPage(p)}>{p}</button>
+                    ))}
+                    <button disabled={marketingPage === marketingPageCount} onClick={() => setMarketingPage((p) => p + 1)}><ChevronRight size={14} /></button>
                   </div>
                 )}
               </>
@@ -1040,7 +1218,7 @@ export default function AdminDashboard() {
                       <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                       <td>{r.patientPhone || "—"}</td>
                       <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
-                      <td>{r.doctor?.marketingPersonName || "—"}</td>
+                      <td>{r.doctor?.marketingPerson?.name || "—"}</td>
                       <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                       <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
                       <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>
@@ -1178,6 +1356,24 @@ export default function AdminDashboard() {
           leader={editingLeader}
           onClose={() => setEditingLeader(null)}
           onSaved={() => { setEditingLeader(null); setMessage("Leader updated."); loadDoctorsAndStaff(); }}
+        />
+      )}
+      {showMarketingForm && (
+        <MarketingPersonModal
+          person={editingMarketingPerson}
+          onClose={() => { setShowMarketingForm(false); setEditingMarketingPerson(null); }}
+          onSaved={() => {
+            setShowMarketingForm(false);
+            setEditingMarketingPerson(null);
+            setMessage(editingMarketingPerson ? "Marketing person updated." : "Marketing person added.");
+            loadMarketingList();
+          }}
+        />
+      )}
+      {viewingMarketingPersonId && (
+        <MarketingPersonDetailModal
+          personId={viewingMarketingPersonId}
+          onClose={() => setViewingMarketingPersonId(null)}
         />
       )}
       {showAddPatient && (

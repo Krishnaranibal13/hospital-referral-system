@@ -16,7 +16,7 @@ const doctorSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   clinicName: z.string().optional(),
   city: z.string().optional(),
-  marketingPersonName: z.string().optional(),
+  marketingPersonId: z.string().uuid().optional().or(z.literal("")),
   creditAmount: z.number().nonnegative().default(0),
 });
 
@@ -56,7 +56,7 @@ router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
   }
 
   const doctor = await prisma.doctor.create({
-    data: { ...parsed.data, hospitalId: req.user.hospitalId },
+    data: { ...parsed.data, marketingPersonId: parsed.data.marketingPersonId || null, hospitalId: req.user.hospitalId },
   });
 
   const referralUrl = `${process.env.FRONTEND_URL}/refer/${doctor.uniqueCode}`;
@@ -135,6 +135,11 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
   const skipped = [];
   const getCell = (row, col) => (col ? String(row.getCell(col).value ?? "").trim() : "");
 
+  // Cache marketing persons by lowercased name so repeat names across rows don't
+  // re-query/re-create — same pattern used for leader auto-creation in the referral import.
+  const existingMarketingPersons = await prisma.marketingPerson.findMany({ where: { hospitalId: req.user.hospitalId } });
+  const marketingPersonCache = new Map(existingMarketingPersons.map((m) => [m.name.trim().toLowerCase(), m]));
+
   for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
     const row = sheet.getRow(rowNumber);
     const name = getCell(row, nameCol);
@@ -148,6 +153,18 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
     }
 
     try {
+      const marketingPersonText = getCell(row, marketingPersonCol);
+      let marketingPersonId = null;
+      if (marketingPersonText) {
+        const key = marketingPersonText.toLowerCase();
+        let mp = marketingPersonCache.get(key);
+        if (!mp) {
+          mp = await prisma.marketingPerson.create({ data: { name: marketingPersonText, hospitalId: req.user.hospitalId } });
+          marketingPersonCache.set(key, mp);
+        }
+        marketingPersonId = mp.id;
+      }
+
       const doctor = await prisma.doctor.create({
         data: {
           name,
@@ -155,7 +172,7 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
           specialty: getCell(row, specialtyCol) || null,
           clinicName: getCell(row, clinicCol) || null,
           city: getCell(row, cityCol) || null,
-          marketingPersonName: getCell(row, marketingPersonCol) || null,
+          marketingPersonId,
           hospitalId: req.user.hospitalId,
         },
       });
@@ -177,6 +194,7 @@ router.get("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
       _count: { select: { referrals: true } },
       transactions: { select: { amount: true, redeemed: true } },
       referrals: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
+      marketingPerson: { select: { id: true, name: true } },
     },
   });
 
@@ -267,11 +285,12 @@ router.get("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
 
 // PATCH /api/doctors/:id  (admin) - update doctor details, own hospital only
 router.patch("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
-  const allowed = ["name", "specialty", "phone", "email", "clinicName", "city", "marketingPersonName", "creditAmount", "active"];
+  const allowed = ["name", "specialty", "phone", "email", "clinicName", "city", "marketingPersonId", "creditAmount", "active"];
   const data = {};
   for (const key of allowed) {
     if (key in req.body) data[key] = req.body[key];
   }
+  if ("marketingPersonId" in data && !data.marketingPersonId) data.marketingPersonId = null;
 
   const existing = await prisma.doctor.findFirst({ where: { id: req.params.id, hospitalId: req.user.hospitalId } });
   if (!existing) return res.status(404).json({ error: "Doctor not found" });

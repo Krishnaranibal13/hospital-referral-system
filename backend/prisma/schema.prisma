@@ -47,6 +47,21 @@ model Hospital {
   staff       StaffUser[]
   doctors     Doctor[]
   customRoles CustomRole[]
+  marketingPersons MarketingPerson[]
+}
+
+model MarketingPerson {
+  id         String   @id @default(uuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+
+  name       String
+  phone      String?
+  email      String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  doctors    Doctor[]
 }
 
 // A hospital-defined role (e.g. "Accountant") with a specific, admin-configurable set of
@@ -86,9 +101,12 @@ model Doctor {
   name          String
   specialty     String?
   // The hospital's marketing-team employee this leader is associated with — usually the
-  // person who built/maintains the relationship. Left blank for the ~10% of leaders with
-  // no such association. Free text, not tied to a StaffUser account.
+  // person who built/maintains the relationship. Left blank for the small share of leaders
+  // with no such association. `marketingPersonName` is a deprecated leftover text column
+  // (kept only so old data migrates cleanly) — use `marketingPerson` going forward.
   marketingPersonName String?
+  marketingPersonId   String?
+  marketingPerson     MarketingPerson? @relation(fields: [marketingPersonId], references: [id])
   // Optional: a leader can be quick-added by name only from the "Add patient" flow
   // (reception may not have their phone on hand yet); can be filled in later.
   phone         String?

@@ -197,7 +197,7 @@ export default function ReceptionDashboard() {
                   <td>{r.patientGender ? r.patientGender.charAt(0) + r.patientGender.slice(1).toLowerCase() : "—"}</td>
                   <td>{r.patientPhone || "—"}</td>
                   <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
-                  <td>{r.doctor?.marketingPersonName || "—"}</td>
+                  <td>{r.doctor?.marketingPerson?.name || "—"}</td>
                   <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                   <td>{r.visitType || "—"}{r.convertedAt && r.visitType === "IPD" ? <span style={{ marginLeft: 4, fontSize: 11, color: "var(--ink-soft)" }}>(from OPD)</span> : null}</td>
                   <td>{r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "—"}</td>

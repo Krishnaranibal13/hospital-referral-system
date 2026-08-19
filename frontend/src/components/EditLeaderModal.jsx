@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
 import Modal from "./Modal";
 import api from "../api/client";
@@ -15,10 +15,22 @@ export default function EditLeaderModal({ leader, onClose, onSaved }) {
     email: leader.email || "",
     clinicName: leader.clinicName || "",
     city: leader.city || "",
-    marketingPersonName: leader.marketingPersonName || "",
+    marketingPersonId: leader.marketingPersonId || leader.marketingPerson?.id || "",
   });
+  const [marketingPersons, setMarketingPersons] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/marketing-persons/lite");
+        setMarketingPersons(data);
+      } catch {
+        // non-fatal — dropdown just stays empty besides "None"
+      }
+    })();
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -55,11 +67,12 @@ export default function EditLeaderModal({ leader, onClose, onSaved }) {
         <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
 
         <label>Marketing person (optional)</label>
-        <input
-          value={form.marketingPersonName}
-          onChange={(e) => setForm({ ...form, marketingPersonName: e.target.value })}
-          placeholder="Hospital marketing team member associated with this leader"
-        />
+        <select value={form.marketingPersonId} onChange={(e) => setForm({ ...form, marketingPersonId: e.target.value })}>
+          <option value="">— None —</option>
+          {marketingPersons.map((m) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
 
         {error && <p className="error">{error}</p>}
 

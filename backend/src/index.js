@@ -8,6 +8,7 @@ import referralRoutes from "./routes/referrals.js";
 import staffRoutes from "./routes/staff.js";
 import hospitalRoutes from "./routes/hospitals.js";
 import dashboardRoutes from "./routes/dashboard.js";
+import marketingPersonRoutes from "./routes/marketingPersons.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use("/api/referrals", referralRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/hospitals", hospitalRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/marketing-persons", marketingPersonRoutes);
 
 // Central error handler
 app.use((err, req, res, next) => {
