@@ -60,6 +60,9 @@ model MarketingPerson {
   email      String?
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
+  // Lets this marketing person log into their own read-only portal (via a QR/link + this
+  // password) to see their own stats only — no admin/reception capabilities of any kind.
+  passwordHash String?
 
   doctors    Doctor[]
 }

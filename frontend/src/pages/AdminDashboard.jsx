@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone, QrCode,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -25,6 +25,7 @@ import { PANEL_OPTIONS } from "../utils/panels";
 import QrModal from "../components/QrModal";
 import MarketingPersonModal from "../components/MarketingPersonModal";
 import MarketingPersonDetailModal from "../components/MarketingPersonDetailModal";
+import MarketingPersonQrModal from "../components/MarketingPersonQrModal";
 
 const NAV_ITEMS = [
   { key: "Dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -92,6 +93,7 @@ export default function AdminDashboard() {
   const [marketingPage, setMarketingPage] = useState(1);
   const [showMarketingForm, setShowMarketingForm] = useState(false);
   const [editingMarketingPerson, setEditingMarketingPerson] = useState(null);
+  const [marketingQr, setMarketingQr] = useState(null); // { name, portalUrl, qrDataUrl }
   const [viewingMarketingPersonId, setViewingMarketingPersonId] = useState(null);
 
   const [showStaffForm, setShowStaffForm] = useState(false);
@@ -192,6 +194,15 @@ export default function AdminDashboard() {
       setMarketingList(data);
     } catch (err) {
       setError(err.response?.data?.error || "Failed to load marketing team.");
+    }
+  }
+
+  async function handleViewMarketingQr(person) {
+    try {
+      const { data } = await api.get(`/marketing-persons/${person.id}/qr`);
+      setMarketingQr({ name: person.name, portalUrl: data.portalUrl, qrDataUrl: data.qrDataUrl });
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to load QR code.");
     }
   }
 
@@ -965,6 +976,9 @@ export default function AdminDashboard() {
                           <td>
                             <div style={{ fontWeight: 600 }}>{m.name}</div>
                             <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{m.phone || "—"}</div>
+                            {!m.hasPassword && (
+                              <div style={{ fontSize: 11, color: "#b45309", marginTop: 2 }}>No portal password set — edit to add one</div>
+                            )}
                           </td>
                           <td>{m.leaderCount}</td>
                           <td>{m.totalReferrals}</td>
@@ -980,6 +994,9 @@ export default function AdminDashboard() {
                           <td><span className={`badge ${m.active ? "CREDITED" : "REJECTED"}`}>{m.active ? "Active" : "Inactive"}</span></td>
                           <td onClick={(e) => e.stopPropagation()}>
                             <div style={{ display: "flex", gap: 6 }}>
+                              <button className="secondary" style={{ width: "auto", padding: "6px 10px" }} onClick={() => handleViewMarketingQr(m)}>
+                                <QrCode size={14} />QR
+                              </button>
                               <button className="secondary" style={{ width: "auto", padding: "6px 10px" }} onClick={() => { setEditingMarketingPerson(m); setShowMarketingForm(true); }}>
                                 <Pencil size={14} />Edit
                               </button>
@@ -1362,11 +1379,15 @@ export default function AdminDashboard() {
         <MarketingPersonModal
           person={editingMarketingPerson}
           onClose={() => { setShowMarketingForm(false); setEditingMarketingPerson(null); }}
-          onSaved={() => {
+          onSaved={(result) => {
+            const wasCreate = !editingMarketingPerson;
             setShowMarketingForm(false);
             setEditingMarketingPerson(null);
-            setMessage(editingMarketingPerson ? "Marketing person updated." : "Marketing person added.");
+            setMessage(wasCreate ? "Marketing person added." : "Marketing person updated.");
             loadMarketingList();
+            if (wasCreate && result?.qrDataUrl) {
+              setMarketingQr({ name: result.person.name, portalUrl: result.portalUrl, qrDataUrl: result.qrDataUrl });
+            }
           }}
         />
       )}
@@ -1374,6 +1395,14 @@ export default function AdminDashboard() {
         <MarketingPersonDetailModal
           personId={viewingMarketingPersonId}
           onClose={() => setViewingMarketingPersonId(null)}
+        />
+      )}
+      {marketingQr && (
+        <MarketingPersonQrModal
+          name={marketingQr.name}
+          portalUrl={marketingQr.portalUrl}
+          qrDataUrl={marketingQr.qrDataUrl}
+          onClose={() => setMarketingQr(null)}
         />
       )}
       {showAddPatient && (

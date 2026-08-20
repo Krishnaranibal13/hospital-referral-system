@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import ReceptionDashboard from "./pages/ReceptionDashboard";
 import DoctorDashboard from "./pages/DoctorDashboard";
+import MarketingPersonDashboard from "./pages/MarketingPersonDashboard";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import StaffPortal from "./pages/StaffPortal";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -48,6 +49,7 @@ export default function App() {
           }
         />
         <Route path="/doctor/:doctorCode" element={<DoctorDashboard />} />
+        <Route path="/marketing/:id" element={<MarketingPersonDashboard />} />
       </Routes>
     </BrowserRouter>
   );

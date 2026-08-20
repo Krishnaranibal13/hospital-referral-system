@@ -1,4 +1,7 @@
 import express from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import QRCode from "qrcode";
 import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
@@ -10,6 +13,15 @@ const marketingPersonSchema = z.object({
   name: z.string().min(1),
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
+  password: z.string().min(4),
+});
+
+const marketingPersonUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  active: z.boolean().optional(),
+  password: z.string().min(4).optional(), // omit to keep the existing password unchanged
 });
 
 // GET /api/marketing-persons  (admin) — every marketing-team member for this hospital,
@@ -45,6 +57,7 @@ router.get("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
       email: p.email,
       active: p.active,
       createdAt: p.createdAt,
+      hasPassword: Boolean(p.passwordHash),
       leaderCount: p.doctors.length,
       totalReferrals: p.doctors.reduce((sum, d) => sum + d._count.referrals, 0),
       totalCredited: allTx.reduce((sum, t) => sum + Number(t.amount), 0),
@@ -66,15 +79,10 @@ router.get("/lite", requireAuth, requireRole("ADMIN"), async (req, res) => {
   res.json(people);
 });
 
-// GET /api/marketing-persons/:id  (admin) — detail view: every leader under this person,
-// plus weekly (last 8 weeks) and monthly (last 6 months) referral counts and credited
-// amounts, so admin can see trend over time, not just a lifetime total.
-router.get("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
-  const person = await prisma.marketingPerson.findFirst({
-    where: { id: req.params.id, hospitalId: req.user.hospitalId },
-  });
-  if (!person) return res.status(404).json({ error: "Marketing person not found" });
-
+// Shared by the admin detail view and the marketing person's own portal — every leader
+// under this person, plus weekly (last 8 weeks) and monthly (last 6 months) referral
+// counts and credited amounts.
+async function buildPersonDetail(person) {
   const doctors = await prisma.doctor.findMany({
     where: { marketingPersonId: person.id },
     orderBy: { createdAt: "desc" },
@@ -133,40 +141,112 @@ router.get("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
     });
   }
 
-  res.json({
+  return {
     person: { id: person.id, name: person.name, phone: person.phone, email: person.email, active: person.active },
     leaders,
     totalReferrals: referrals.length,
     totalCredited: referrals.reduce((sum, r) => sum + (r.transaction ? Number(r.transaction.amount) : 0), 0),
     weekly,
     monthly,
+  };
+}
+
+// GET /api/marketing-persons/:id  (admin) — detail view for a specific person.
+router.get("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const person = await prisma.marketingPerson.findFirst({
+    where: { id: req.params.id, hospitalId: req.user.hospitalId },
   });
+  if (!person) return res.status(404).json({ error: "Marketing person not found" });
+  res.json(await buildPersonDetail(person));
 });
 
-// POST /api/marketing-persons  (admin) — add a new marketing-team member.
+// GET /api/marketing-persons/:id/qr  (admin) — the marketing person's own portal link + QR
+// code image, so admin can share it with them (print, download, or send directly).
+router.get("/:id/qr", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const person = await prisma.marketingPerson.findFirst({
+    where: { id: req.params.id, hospitalId: req.user.hospitalId },
+  });
+  if (!person) return res.status(404).json({ error: "Marketing person not found" });
+
+  const portalUrl = `${process.env.FRONTEND_URL}/marketing/${person.id}`;
+  const qrDataUrl = await QRCode.toDataURL(portalUrl);
+  res.json({ portalUrl, qrDataUrl });
+});
+
+// POST /api/marketing-persons  (admin) — add a new marketing-team member. A password is
+// required up front, since this immediately creates their portal login.
 router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const parsed = marketingPersonSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  const { password, ...rest } = parsed.data;
+  const passwordHash = await bcrypt.hash(password, 10);
+
   const person = await prisma.marketingPerson.create({
-    data: { ...parsed.data, hospitalId: req.user.hospitalId },
+    data: { ...rest, passwordHash, hospitalId: req.user.hospitalId },
   });
-  res.status(201).json(person);
+
+  const portalUrl = `${process.env.FRONTEND_URL}/marketing/${person.id}`;
+  const qrDataUrl = await QRCode.toDataURL(portalUrl);
+  res.status(201).json({ person, portalUrl, qrDataUrl });
 });
 
-// PATCH /api/marketing-persons/:id  (admin) — edit details or toggle active.
+// PATCH /api/marketing-persons/:id  (admin) — edit details, reset the portal password, or
+// toggle active. Omitting `password` leaves the existing one unchanged.
 router.patch("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
-  const allowed = ["name", "phone", "email", "active"];
-  const data = {};
-  for (const key of allowed) {
-    if (key in req.body) data[key] = req.body[key];
-  }
+  const parsed = marketingPersonUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   const existing = await prisma.marketingPerson.findFirst({ where: { id: req.params.id, hospitalId: req.user.hospitalId } });
   if (!existing) return res.status(404).json({ error: "Marketing person not found" });
 
+  const { password, ...rest } = parsed.data;
+  const data = { ...rest };
+  if (password) data.passwordHash = await bcrypt.hash(password, 10);
+
   const person = await prisma.marketingPerson.update({ where: { id: req.params.id }, data });
   res.json(person);
+});
+
+// ---------------------------------------------------------------------------------------
+// Public portal endpoints — used by the marketing person themselves, not by hospital staff.
+// No hospital-staff auth required to reach these; the password on the person's own record
+// is the only gate. The resulting token only ever grants access to that one person's own
+// data (see requireRole("MARKETING") + buildPersonDetail scoped to req.user.marketingPersonId
+// below) — never other marketing people's data, and no referral-management actions at all.
+// ---------------------------------------------------------------------------------------
+
+// POST /api/marketing-persons/public/:id/login  { password }
+router.post("/public/:id/login", async (req, res) => {
+  const { password } = req.body || {};
+  if (!password) return res.status(400).json({ error: "Password is required" });
+
+  const person = await prisma.marketingPerson.findUnique({ where: { id: req.params.id } });
+  if (!person || !person.passwordHash) {
+    return res.status(401).json({ error: "This portal link isn't set up yet. Ask your admin to set a password." });
+  }
+  if (!person.active) {
+    return res.status(403).json({ error: "This account has been deactivated. Ask your admin for help." });
+  }
+
+  const valid = await bcrypt.compare(password, person.passwordHash);
+  if (!valid) return res.status(401).json({ error: "Incorrect password" });
+
+  const token = jwt.sign(
+    { role: "MARKETING", marketingPersonId: person.id, hospitalId: person.hospitalId, name: person.name },
+    process.env.JWT_SECRET,
+    { expiresIn: "12h" }
+  );
+  res.json({ token, name: person.name });
+});
+
+// GET /api/marketing-persons/public/me  — the logged-in marketing person's own report.
+// Always scoped to req.user.marketingPersonId from the token — the :id in the URL they
+// visited is never trusted for data access, only the token is.
+router.get("/public/me", requireAuth, requireRole("MARKETING"), async (req, res) => {
+  const person = await prisma.marketingPerson.findUnique({ where: { id: req.user.marketingPersonId } });
+  if (!person) return res.status(404).json({ error: "Account not found" });
+  res.json(await buildPersonDetail(person));
 });
 
 export default router;
