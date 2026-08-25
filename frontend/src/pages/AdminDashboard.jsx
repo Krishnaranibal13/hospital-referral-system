@@ -66,6 +66,7 @@ export default function AdminDashboard() {
   const [referralDateTo, setReferralDateTo] = useState("");
 
   const [dashboardData, setDashboardData] = useState(null);
+  const [marketingPeriod, setMarketingPeriod] = useState("month");
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [recentPage, setRecentPage] = useState(1);
 
@@ -688,7 +689,7 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 }}>
                   <div className="card">
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                       <Award size={16} color="var(--teal-600)" />
@@ -706,6 +707,48 @@ export default function AdminDashboard() {
                               <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{d.clinicName || "—"} · {d.count} credit{d.count !== 1 ? "s" : ""}</div>
                             </div>
                             <div style={{ fontWeight: 700, color: "var(--teal-700)" }}>{d.total.toFixed(2)} pts</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="card">
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Megaphone size={16} color="var(--teal-600)" />
+                        <h3 style={{ margin: 0 }}>Top-performing Marketing Emp</h3>
+                      </div>
+                      <div style={{ display: "flex", gap: 2, background: "var(--teal-50)", borderRadius: 8, padding: 2 }}>
+                        {[["week", "7D"], ["month", "30D"], ["3months", "3M"], ["6months", "6M"], ["year", "1Y"]].map(([key, label]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setMarketingPeriod(key)}
+                            style={{
+                              width: "auto", padding: "3px 8px", fontSize: 11, fontWeight: 600, border: "none",
+                              borderRadius: 6, cursor: "pointer",
+                              background: marketingPeriod === key ? "var(--teal-600)" : "transparent",
+                              color: marketingPeriod === key ? "#fff" : "var(--ink-soft)",
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {(dashboardData.topMarketingPersons?.[marketingPeriod] || []).length === 0 ? (
+                      <EmptyState icon={Megaphone} title="No leads in this period" />
+                    ) : (
+                      <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                        {dashboardData.topMarketingPersons[marketingPeriod].map((m, i) => (
+                          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: i < dashboardData.topMarketingPersons[marketingPeriod].length - 1 ? "1px solid var(--border)" : "none" }}>
+                            <Avatar name={m.name} size={30} />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div>
+                              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{m.leadsCount} lead{m.leadsCount !== 1 ? "s" : ""}</div>
+                            </div>
+                            <div style={{ fontWeight: 700, color: "var(--teal-700)" }}>{m.amount.toFixed(2)} pts</div>
                           </div>
                         ))}
                       </div>
