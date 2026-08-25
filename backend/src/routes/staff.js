@@ -4,6 +4,7 @@ import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { PERMISSION_KEYS } from "../utils/permissions.js";
+import { logActivity, diffFields, ACTIONS } from "../utils/activityLog.js";
 
 const router = express.Router();
 
@@ -47,6 +48,16 @@ router.post("/roles", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const role = await prisma.customRole.create({
     data: { ...parsed.data, hospitalId: req.user.hospitalId },
   });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.ROLE_CREATED,
+    entityType: "CustomRole",
+    entityId: role.id,
+    entityLabel: role.name,
+    metadata: { permissions: role.permissions },
+  });
+
   res.status(201).json(role);
 });
 
@@ -65,6 +76,17 @@ router.patch("/roles/:id", requireAuth, requireRole("ADMIN"), async (req, res) =
   }
 
   const updated = await prisma.customRole.update({ where: { id: req.params.id }, data: parsed.data });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.ROLE_UPDATED,
+    entityType: "CustomRole",
+    entityId: updated.id,
+    entityLabel: updated.name,
+    changes: diffFields(role, updated, ["name"]),
+    metadata: { permissions: updated.permissions },
+  });
+
   res.json(updated);
 });
 
@@ -78,6 +100,15 @@ router.delete("/roles/:id", requireAuth, requireRole("ADMIN"), async (req, res) 
     return res.status(400).json({ error: "Reassign or remove staff using this role before deleting it" });
   }
   await prisma.customRole.delete({ where: { id: req.params.id } });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.ROLE_DELETED,
+    entityType: "CustomRole",
+    entityId: role.id,
+    entityLabel: role.name,
+  });
+
   res.json({ message: "Role removed" });
 });
 
@@ -121,6 +152,15 @@ router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
     select: { id: true, name: true, email: true, role: true, createdAt: true, customRole: { select: { id: true, name: true } } },
   });
 
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.STAFF_CREATED,
+    entityType: "StaffUser",
+    entityId: user.id,
+    entityLabel: user.name,
+    metadata: { email: user.email, role: user.role, customRoleName: user.customRole?.name || null },
+  });
+
   res.status(201).json(user);
 });
 
@@ -136,6 +176,15 @@ router.post("/:id/reset-password", requireAuth, requireRole("ADMIN"), async (req
 
   const passwordHash = await bcrypt.hash(password, 10);
   await prisma.staffUser.update({ where: { id: req.params.id }, data: { passwordHash } });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.STAFF_PASSWORD_RESET,
+    entityType: "StaffUser",
+    entityId: target.id,
+    entityLabel: target.name,
+  });
+
   res.json({ message: "Password updated" });
 });
 
@@ -148,6 +197,16 @@ router.delete("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
   if (!target) return res.status(404).json({ error: "Staff account not found" });
 
   await prisma.staffUser.delete({ where: { id: req.params.id } });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.STAFF_DELETED,
+    entityType: "StaffUser",
+    entityId: target.id,
+    entityLabel: target.name,
+    metadata: { email: target.email, role: target.role },
+  });
+
   res.json({ message: "Staff account removed" });
 });
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { startOfIstDay, istDateString } from "../utils/istDate.js";
+import { logActivity, diffFields, ACTIONS } from "../utils/activityLog.js";
 
 const router = express.Router();
 
@@ -186,6 +187,14 @@ router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
     data: { ...rest, passwordHash, hospitalId: req.user.hospitalId },
   });
 
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.MARKETING_PERSON_CREATED,
+    entityType: "MarketingPerson",
+    entityId: person.id,
+    entityLabel: person.name,
+  });
+
   const portalUrl = `${process.env.FRONTEND_URL}/marketing/${person.id}`;
   const qrDataUrl = await QRCode.toDataURL(portalUrl);
   res.status(201).json({ person, portalUrl, qrDataUrl });
@@ -205,6 +214,17 @@ router.patch("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
   if (password) data.passwordHash = await bcrypt.hash(password, 10);
 
   const person = await prisma.marketingPerson.update({ where: { id: req.params.id }, data });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.MARKETING_PERSON_UPDATED,
+    entityType: "MarketingPerson",
+    entityId: person.id,
+    entityLabel: person.name,
+    changes: diffFields(existing, person, ["name", "phone", "email", "active"]),
+    metadata: password ? { passwordReset: true } : undefined,
+  });
+
   res.json(person);
 });
 

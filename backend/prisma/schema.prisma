@@ -49,6 +49,38 @@ model Hospital {
   customRoles CustomRole[]
   marketingPersons MarketingPerson[]
   importBatches    ImportBatch[]
+  activityLogs     ActivityLog[]
+}
+
+// One row per meaningful change anywhere in the system for this hospital — referral status
+// changes, credit payouts, leaders, marketing team, staff, and settings. Powers the "Activity
+// Log" tab so an admin can answer "who did what, and when" without digging through tables.
+// Rows are never edited or deleted after being written — it's an append-only audit trail.
+model ActivityLog {
+  id          String   @id @default(uuid())
+  hospitalId  String
+  hospital    Hospital @relation(fields: [hospitalId], references: [id])
+
+  // Captured at write time (not a live FK) so the log survives the actor's account being
+  // deleted later, and so it still reads correctly if their name/role changes afterward.
+  actorUserId String?
+  actorName   String
+  actorRole   String?
+
+  action      String   // e.g. "referral.credited", "credit.redeemed", "doctor.created" — see ACTIONS in utils/activityLog.js
+  entityType  String   // "Referral" | "Doctor" | "CreditTransaction" | "MarketingPerson" | "StaffUser" | "CustomRole" | "Hospital" | "ImportBatch"
+  entityId    String?
+  entityLabel String?  // human-readable label (patient/doctor/staff name) so the log reads without joins
+
+  // Field-level diff for updates: { fieldName: { from, to }, ... }. Null for pure creates/deletes.
+  changes     Json?
+  // Anything else worth keeping around for context (amount, file name, reason, etc).
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+
+  @@index([hospitalId, createdAt])
+  @@index([hospitalId, entityType, entityId])
 }
 
 model MarketingPerson {

@@ -27,6 +27,7 @@ import QrModal from "../components/QrModal";
 import MarketingPersonModal from "../components/MarketingPersonModal";
 import MarketingPersonDetailModal from "../components/MarketingPersonDetailModal";
 import MarketingPersonQrModal from "../components/MarketingPersonQrModal";
+import ActivityLogPanel from "../components/ActivityLogPanel";
 
 const NAV_ITEMS = [
   { key: "Dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { key: "Marketing", label: "Marketing Team", icon: Megaphone },
   { key: "Staff", label: "Staff", icon: Users },
   { key: "All Referrals", label: "All Referrals", icon: ClipboardList },
+  { key: "Activity Log", label: "Activity Log", icon: History },
 ];
 
 const PERMISSION_LABELS = {
@@ -1407,6 +1409,8 @@ export default function AdminDashboard() {
             )}
           </div>
         )}
+
+        {activeTab === "Activity Log" && <ActivityLogPanel />}
       </div>
 
       {qrModalDoctor && (

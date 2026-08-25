@@ -8,6 +8,7 @@ import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
 import { startOfIstDay, istDayBounds } from "../utils/istDate.js";
 import { formatDate, formatDateTime } from "../utils/formatDate.js";
+import { logActivity, diffFields, ACTIONS } from "../utils/activityLog.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -111,6 +112,17 @@ router.post("/", publicLimiter, async (req, res) => {
     },
   });
 
+  // No staff account is involved in a public QR submission — attribute the log entry to the
+  // referring leader themselves rather than leaving "who did it" blank.
+  logActivity({
+    actor: { hospitalId: doctor.hospitalId, id: null, name: doctor.name, role: "LEADER" },
+    action: ACTIONS.REFERRAL_SUBMITTED,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: patientName,
+    metadata: { doctorId: doctor.id, doctorName: doctor.name, via: "QR link" },
+  });
+
   res.status(201).json({ message: "Referral submitted successfully", referralId: referral.id });
 });
 
@@ -153,6 +165,25 @@ router.post("/manual", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANA
 
   const referral = await prisma.referral.create({
     data: { doctorId: doctor.id, patientName, patientAge, patientPhone, patientGender },
+  });
+
+  if (newLeaderCreated) {
+    logActivity({
+      actor: req.user,
+      action: ACTIONS.DOCTOR_CREATED,
+      entityType: "Doctor",
+      entityId: doctor.id,
+      entityLabel: doctor.name,
+      metadata: { via: "Add patient (new leader typed inline)" },
+    });
+  }
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_ADDED_MANUALLY,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: patientName,
+    metadata: { doctorId: doctor.id, doctorName: doctor.name },
   });
 
   res.status(201).json({ message: "Patient added successfully", referralId: referral.id, newLeaderCreated, doctorName: doctor.name });
@@ -404,6 +435,16 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
       where: { id: batch.id },
       data: { createdCount: created.length, skippedCount: skipped.length },
     });
+    // One summary log entry for the whole upload rather than one per row — a bulk import can
+    // be hundreds of rows, and the Import History screen already covers row-level detail.
+    logActivity({
+      actor: req.user,
+      action: ACTIONS.REFERRAL_BULK_IMPORTED,
+      entityType: "ImportBatch",
+      entityId: batch.id,
+      entityLabel: batch.fileName || "Bulk import",
+      metadata: { createdCount: created.length, skippedCount: skipped.length, newLeadersCreated, newMarketingPersonsCreated },
+    });
   }
 
   res.json({
@@ -484,6 +525,15 @@ router.post("/bulk-import/batches/:batchId/revert", requireAuth, requireRole("AD
     }),
   ]);
 
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_BULK_IMPORT_REVERTED,
+    entityType: "ImportBatch",
+    entityId: batch.id,
+    entityLabel: batch.fileName || "Bulk import",
+    metadata: { revertedCount: referralIds.length },
+  });
+
   res.json({ revertedCount: referralIds.length });
 });
 
@@ -501,6 +551,16 @@ router.patch("/:id/panel", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
     where: { id: referral.id },
     data: { panel: panel ? String(panel).trim() : null },
   });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_PANEL_UPDATED,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: referral.patientName,
+    changes: diffFields(referral, updated, ["panel"]),
+  });
+
   res.json(updated);
 });
 
@@ -724,6 +784,15 @@ router.post("/:id/arrive", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
     return { updated, transaction };
   });
 
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_CREDITED,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: referral.patientName,
+    metadata: { visitType, fileNumber: String(fileNumber).trim(), amount: Number(amount), doctorName: referral.doctor.name },
+  });
+
   res.json(result);
 });
 
@@ -793,6 +862,16 @@ router.post("/:id/convert-to-ipd", requireAuth, requireAccess(["ADMIN", "RECEPTI
     return { updated, transaction };
   });
 
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_CONVERTED_TO_IPD,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: referral.patientName,
+    changes: { amount: { from: previousAmount, to: newAmount }, visitType: { from: "OPD", to: "IPD" } },
+    metadata: { fileNumber: String(fileNumber).trim() },
+  });
+
   res.json(result);
 });
 
@@ -815,6 +894,15 @@ router.post("/:id/discharge", requireAuth, requireAccess(["ADMIN", "RECEPTION"],
     where: { id: referral.id },
     data: { dischargedAt: new Date() },
   });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_DISCHARGED,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: referral.patientName,
+  });
+
   res.json(updated);
 });
 
@@ -830,6 +918,17 @@ router.post("/:id/reject", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["
     where: { id: req.params.id },
     data: { status: "REJECTED", rejectedReason: reason || "No reason given" },
   });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_REJECTED,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: referral.patientName,
+    changes: { status: { from: referral.status, to: "REJECTED" } },
+    metadata: { reason: reason || "No reason given" },
+  });
+
   res.json(updated);
 });
 
@@ -850,6 +949,16 @@ router.post("/:id/revert", requireAuth, requireRole("ADMIN"), async (req, res) =
     where: { id: req.params.id },
     data: { status: "PENDING", rejectedReason: null },
   });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_REVERTED,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: referral.patientName,
+    changes: { status: { from: "REJECTED", to: "PENDING" } },
+  });
+
   res.json(updated);
 });
 
@@ -882,6 +991,21 @@ router.post("/:id/redeem", requireAuth, requireAccess(["ADMIN"], ["REDEEM_CREDIT
     where: { id: referral.transaction.id },
     data,
   });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.CREDIT_REDEEMED,
+    entityType: "CreditTransaction",
+    entityId: updated.id,
+    entityLabel: referral.patientName,
+    metadata: {
+      amount: Number(updated.amount),
+      paymentMethod: updated.paymentMethod || null,
+      referenceNumber: updated.referenceNumber || null,
+      remarks: updated.remarks || null,
+    },
+  });
+
   res.json(updated);
 });
 
@@ -906,6 +1030,15 @@ router.delete("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
     prisma.creditTransaction.deleteMany({ where: { referralId: referral.id } }),
     prisma.referral.delete({ where: { id: referral.id } }),
   ]);
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.REFERRAL_DELETED,
+    entityType: "Referral",
+    entityId: referral.id,
+    entityLabel: referral.patientName,
+    metadata: { status: referral.status, hadPendingCredit: Boolean(referral.transaction) },
+  });
 
   res.json({ message: "Patient removed" });
 });

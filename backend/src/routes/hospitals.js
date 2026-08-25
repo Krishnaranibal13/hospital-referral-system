@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
+import { logActivity, diffFields, ACTIONS } from "../utils/activityLog.js";
 
 const router = express.Router();
 
@@ -36,11 +37,25 @@ router.patch("/settings", requireAuth, requireRole("ADMIN"), async (req, res) =>
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
+  const existing = await prisma.hospital.findUnique({
+    where: { id: req.user.hospitalId },
+    select: { ipdAmount: true, opdAmount: true },
+  });
   const hospital = await prisma.hospital.update({
     where: { id: req.user.hospitalId },
     data: parsed.data,
     select: { ipdAmount: true, opdAmount: true },
   });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.HOSPITAL_SETTINGS_UPDATED,
+    entityType: "Hospital",
+    entityId: req.user.hospitalId,
+    entityLabel: "IPD/OPD credit amounts",
+    changes: diffFields(existing, hospital, ["ipdAmount", "opdAmount"]),
+  });
+
   res.json(hospital);
 });
 

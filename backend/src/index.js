@@ -9,6 +9,7 @@ import staffRoutes from "./routes/staff.js";
 import hospitalRoutes from "./routes/hospitals.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import marketingPersonRoutes from "./routes/marketingPersons.js";
+import activityLogRoutes from "./routes/activityLog.js";
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/hospitals", hospitalRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/marketing-persons", marketingPersonRoutes);
+app.use("/api/activity-log", activityLogRoutes);
 
 // Central error handler
 app.use((err, req, res, next) => {

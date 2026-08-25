@@ -5,6 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
+import { logActivity, diffFields, ACTIONS } from "../utils/activityLog.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -57,6 +58,14 @@ router.post("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
 
   const doctor = await prisma.doctor.create({
     data: { ...parsed.data, marketingPersonId: parsed.data.marketingPersonId || null, hospitalId: req.user.hospitalId },
+  });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.DOCTOR_CREATED,
+    entityType: "Doctor",
+    entityId: doctor.id,
+    entityLabel: doctor.name,
   });
 
   const referralUrl = `${process.env.FRONTEND_URL}/refer/${doctor.uniqueCode}`;
@@ -182,6 +191,16 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
     }
   }
 
+  if (created.length > 0) {
+    logActivity({
+      actor: req.user,
+      action: ACTIONS.DOCTOR_BULK_IMPORTED,
+      entityType: "Doctor",
+      entityLabel: req.file.originalname || "Bulk import",
+      metadata: { createdCount: created.length, skippedCount: skipped.length },
+    });
+  }
+
   res.json({ createdCount: created.length, skippedCount: skipped.length, skipped });
 });
 
@@ -296,6 +315,16 @@ router.patch("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
   if (!existing) return res.status(404).json({ error: "Doctor not found" });
 
   const doctor = await prisma.doctor.update({ where: { id: req.params.id }, data });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.DOCTOR_UPDATED,
+    entityType: "Doctor",
+    entityId: doctor.id,
+    entityLabel: doctor.name,
+    changes: diffFields(existing, doctor, allowed),
+  });
+
   res.json(doctor);
 });
 
@@ -321,6 +350,21 @@ router.post("/:id/redeem-all", requireAuth, requireAccess(["ADMIN"], ["REDEEM_CR
   await prisma.creditTransaction.updateMany({
     where: { id: { in: pending.map((t) => t.id) } },
     data,
+  });
+
+  logActivity({
+    actor: req.user,
+    action: ACTIONS.CREDIT_REDEEMED_ALL,
+    entityType: "Doctor",
+    entityId: doctor.id,
+    entityLabel: doctor.name,
+    metadata: {
+      total,
+      count: pending.length,
+      paymentMethod: paymentMethod || null,
+      referenceNumber: referenceNumber || null,
+      remarks: remarks || null,
+    },
   });
 
   res.json({ message: `Redeemed ${total.toFixed(2)} pts across ${pending.length} referral(s) for ${doctor.name}`, total, count: pending.length });
