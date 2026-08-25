@@ -5,13 +5,18 @@ import { istDateString, startOfIstDay } from "../utils/istDate.js";
 
 const router = express.Router();
 
-// Windows offered by the "Top-performing Marketing Emp" card's period toggle.
-const MARKETING_PERIODS = { week: 7, month: 30, "3months": 90, "6months": 180, year: 365 };
+// Windows offered by the period toggle on the "Top-performing doctors", "Top-performing
+// Marketing Emp", and "Pending redemptions" cards.
+const PERIODS = { week: 7, month: 30, "3months": 90, "6months": 180, year: 365 };
+
+function withinPeriod(date, days) {
+  return new Date(date).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
+}
 
 // GET /api/dashboard/summary  (admin only) — everything the Admin Dashboard home page needs
-// in one call: KPI counts, a 14-day referral trend, top doctors, top marketing employees
-// (precomputed for every period so the toggle is instant with no extra requests), recent
-// referrals, and currently-unredeemed credits awaiting payout.
+// in one call: KPI counts, a 14-day referral trend, top doctors, top marketing employees,
+// and pending redemptions grouped by doctor — each of the last three precomputed for every
+// toggle period so switching is instant with no extra requests — plus recent referrals.
 router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const hospitalId = req.user.hospitalId;
 
@@ -53,15 +58,19 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
     trend.push({ date: dayLabel, count });
   }
 
-  // Top doctors by total credited (redeemed + pending), descending
-  const byDoctor = {};
-  for (const t of transactions) {
-    const key = t.doctor.id;
-    if (!byDoctor[key]) byDoctor[key] = { id: t.doctor.id, name: t.doctor.name, clinicName: t.doctor.clinicName, total: 0, count: 0 };
-    byDoctor[key].total += Number(t.amount);
-    byDoctor[key].count += 1;
+  // Top doctors by total credited (redeemed + pending) within the period, by credit date.
+  function topDoctorsForPeriod(days) {
+    const byDoctor = {};
+    for (const t of transactions) {
+      if (!withinPeriod(t.createdAt, days)) continue;
+      const key = t.doctor.id;
+      if (!byDoctor[key]) byDoctor[key] = { id: t.doctor.id, name: t.doctor.name, clinicName: t.doctor.clinicName, total: 0, count: 0 };
+      byDoctor[key].total += Number(t.amount);
+      byDoctor[key].count += 1;
+    }
+    return Object.values(byDoctor).sort((a, b) => b.total - a.total).slice(0, 15);
   }
-  const topDoctors = Object.values(byDoctor).sort((a, b) => b.total - a.total).slice(0, 15);
+  const topDoctors = Object.fromEntries(Object.entries(PERIODS).map(([key, days]) => [key, topDoctorsForPeriod(days)]));
 
   // Top marketing employees, one ranking per toggle period. "Leads" = referrals brought in
   // by doctors linked to that marketing person (any status); "amount" = the credit points
@@ -72,12 +81,10 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
   for (const t of transactions) {
     if (t.referral) creditAmountByReferralId.set(t.referral.id, Number(t.amount));
   }
-
   function topMarketingForPeriod(days) {
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const byPerson = {};
     for (const r of referrals) {
-      if (new Date(r.createdAt).getTime() < cutoff) continue;
+      if (!withinPeriod(r.createdAt, days)) continue;
       const mpId = r.doctor.marketingPersonId;
       if (!mpId || !marketingPersonMap.has(mpId)) continue;
       if (!byPerson[mpId]) byPerson[mpId] = { id: mpId, name: marketingPersonMap.get(mpId).name, leadsCount: 0, amount: 0 };
@@ -86,13 +93,27 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
     }
     return Object.values(byPerson).sort((a, b) => b.amount - a.amount).slice(0, 15);
   }
+  const topMarketingPersons = Object.fromEntries(Object.entries(PERIODS).map(([key, days]) => [key, topMarketingForPeriod(days)]));
 
-  const topMarketingPersons = Object.fromEntries(
-    Object.entries(MARKETING_PERIODS).map(([key, days]) => [key, topMarketingForPeriod(days)])
-  );
+  // Pending redemptions, grouped by doctor (one row per doctor instead of one per patient) so
+  // a doctor with many unpaid patients — e.g. "Hospitech" — shows once with a running total.
+  // Each group carries its own list of individual pending transactions for the row to expand
+  // into on click, without a second request.
+  function pendingGroupsForPeriod(days) {
+    const byDoctor = {};
+    for (const t of transactions) {
+      if (t.redeemed || !withinPeriod(t.createdAt, days)) continue;
+      const key = t.doctor.id;
+      if (!byDoctor[key]) byDoctor[key] = { doctorId: t.doctor.id, doctorName: t.doctor.name, clinicName: t.doctor.clinicName, total: 0, count: 0, transactions: [] };
+      byDoctor[key].total += Number(t.amount);
+      byDoctor[key].count += 1;
+      byDoctor[key].transactions.push({ id: t.id, amount: Number(t.amount), createdAt: t.createdAt, patientName: t.referral?.patientName || null });
+    }
+    return Object.values(byDoctor).sort((a, b) => b.total - a.total).slice(0, 30);
+  }
+  const pendingRedemptions = Object.fromEntries(Object.entries(PERIODS).map(([key, days]) => [key, pendingGroupsForPeriod(days)]));
 
   const recentReferrals = referrals.slice(0, 30);
-  const pendingRedemptions = transactions.filter((t) => !t.redeemed).slice(0, 30);
 
   res.json({
     kpis: {

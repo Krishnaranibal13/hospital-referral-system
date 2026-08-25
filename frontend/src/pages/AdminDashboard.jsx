@@ -52,6 +52,32 @@ const DOCTORS_PAGE_SIZE = 8;
 const RECENT_PAGE_SIZE = 7;
 const REFERRALS_PAGE_SIZE = 50;
 
+const DASHBOARD_PERIODS = [["week", "7D"], ["month", "30D"], ["3months", "3M"], ["6months", "6M"], ["year", "1Y"]];
+
+// Small pill-style period switcher shared by the Top Doctors / Top Marketing Emp / Pending
+// Redemptions dashboard cards.
+function PeriodToggle({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 2, background: "var(--teal-50)", borderRadius: 8, padding: 2 }}>
+      {DASHBOARD_PERIODS.map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onChange(key)}
+          style={{
+            width: "auto", padding: "3px 8px", fontSize: 11, fontWeight: 600, border: "none",
+            borderRadius: 6, cursor: "pointer",
+            background: value === key ? "var(--teal-600)" : "transparent",
+            color: value === key ? "#fff" : "var(--ink-soft)",
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [doctors, setDoctors] = useState([]);
@@ -66,7 +92,10 @@ export default function AdminDashboard() {
   const [referralDateTo, setReferralDateTo] = useState("");
 
   const [dashboardData, setDashboardData] = useState(null);
+  const [doctorsPeriod, setDoctorsPeriod] = useState("month");
   const [marketingPeriod, setMarketingPeriod] = useState("month");
+  const [redemptionsPeriod, setRedemptionsPeriod] = useState("month");
+  const [expandedPendingDoctorId, setExpandedPendingDoctorId] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [recentPage, setRecentPage] = useState(1);
 
@@ -691,16 +720,19 @@ export default function AdminDashboard() {
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 }}>
                   <div className="card">
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                      <Award size={16} color="var(--teal-600)" />
-                      <h3 style={{ margin: 0 }}>Top-performing doctors</h3>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Award size={16} color="var(--teal-600)" />
+                        <h3 style={{ margin: 0 }}>Top-performing doctors</h3>
+                      </div>
+                      <PeriodToggle value={doctorsPeriod} onChange={setDoctorsPeriod} />
                     </div>
-                    {dashboardData.topDoctors.length === 0 ? (
-                      <EmptyState icon={Award} title="No credited referrals yet" />
+                    {(dashboardData.topDoctors?.[doctorsPeriod] || []).length === 0 ? (
+                      <EmptyState icon={Award} title="No credited referrals in this period" />
                     ) : (
                       <div style={{ maxHeight: 280, overflowY: "auto" }}>
-                        {dashboardData.topDoctors.map((d, i) => (
-                          <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: i < dashboardData.topDoctors.length - 1 ? "1px solid var(--border)" : "none" }}>
+                        {dashboardData.topDoctors[doctorsPeriod].map((d, i) => (
+                          <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: i < dashboardData.topDoctors[doctorsPeriod].length - 1 ? "1px solid var(--border)" : "none" }}>
                             <Avatar name={d.name} size={30} />
                             <div style={{ flex: 1 }}>
                               <div style={{ fontWeight: 600, fontSize: 14 }}>{d.name}</div>
@@ -719,23 +751,7 @@ export default function AdminDashboard() {
                         <Megaphone size={16} color="var(--teal-600)" />
                         <h3 style={{ margin: 0 }}>Top-performing Marketing Emp</h3>
                       </div>
-                      <div style={{ display: "flex", gap: 2, background: "var(--teal-50)", borderRadius: 8, padding: 2 }}>
-                        {[["week", "7D"], ["month", "30D"], ["3months", "3M"], ["6months", "6M"], ["year", "1Y"]].map(([key, label]) => (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setMarketingPeriod(key)}
-                            style={{
-                              width: "auto", padding: "3px 8px", fontSize: 11, fontWeight: 600, border: "none",
-                              borderRadius: 6, cursor: "pointer",
-                              background: marketingPeriod === key ? "var(--teal-600)" : "transparent",
-                              color: marketingPeriod === key ? "#fff" : "var(--ink-soft)",
-                            }}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                      <PeriodToggle value={marketingPeriod} onChange={setMarketingPeriod} />
                     </div>
                     {(dashboardData.topMarketingPersons?.[marketingPeriod] || []).length === 0 ? (
                       <EmptyState icon={Megaphone} title="No leads in this period" />
@@ -756,24 +772,46 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="card">
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                      <Wallet size={16} color="#b45309" />
-                      <h3 style={{ margin: 0 }}>Pending redemptions</h3>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Wallet size={16} color="#b45309" />
+                        <h3 style={{ margin: 0 }}>Pending redemptions</h3>
+                      </div>
+                      <PeriodToggle value={redemptionsPeriod} onChange={setRedemptionsPeriod} />
                     </div>
-                    {dashboardData.pendingRedemptions.length === 0 ? (
-                      <EmptyState icon={CheckCircle2} title="All caught up" subtitle="No unpaid credits right now" />
+                    {(dashboardData.pendingRedemptions?.[redemptionsPeriod] || []).length === 0 ? (
+                      <EmptyState icon={CheckCircle2} title="All caught up" subtitle="No unpaid credits in this period" />
                     ) : (
                       <div style={{ maxHeight: 280, overflowY: "auto" }}>
-                        {dashboardData.pendingRedemptions.map((t, i) => (
-                          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", borderBottom: i < dashboardData.pendingRedemptions.length - 1 ? "1px solid var(--border)" : "none" }}>
-                            <Avatar name={t.doctor.name} size={30} />
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, fontSize: 14 }}>{t.doctor.name}</div>
-                              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{t.referral?.patientName || "—"} · {formatDateTime(t.createdAt)}</div>
+                        {dashboardData.pendingRedemptions[redemptionsPeriod].map((g, i) => {
+                          const isOpen = expandedPendingDoctorId === g.doctorId;
+                          return (
+                            <div key={g.doctorId} style={{ borderBottom: i < dashboardData.pendingRedemptions[redemptionsPeriod].length - 1 ? "1px solid var(--border)" : "none" }}>
+                              <div
+                                onClick={() => setExpandedPendingDoctorId(isOpen ? null : g.doctorId)}
+                                style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", cursor: "pointer" }}
+                              >
+                                <Avatar name={g.doctorName} size={30} />
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: 600, fontSize: 14 }}>{g.doctorName}</div>
+                                  <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{g.count} pending{g.count !== 1 ? "s" : ""}</div>
+                                </div>
+                                <div style={{ fontWeight: 700, color: "#b45309" }}>{g.total.toFixed(2)} pts</div>
+                                {isOpen ? <ChevronUp size={16} color="var(--ink-soft)" /> : <ChevronDown size={16} color="var(--ink-soft)" />}
+                              </div>
+                              {isOpen && (
+                                <div style={{ paddingLeft: 40, paddingBottom: 8 }}>
+                                  {g.transactions.map((t) => (
+                                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "4px 4px", fontSize: 12.5 }}>
+                                      <span style={{ color: "var(--ink)" }}>{t.patientName || "—"} <span style={{ color: "var(--ink-soft)" }}>· {formatDateTime(t.createdAt)}</span></span>
+                                      <span style={{ fontWeight: 600, color: "#b45309", whiteSpace: "nowrap" }}>{t.amount.toFixed(2)} pts</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                            <div style={{ fontWeight: 700, color: "#b45309" }}>{Number(t.amount).toFixed(2)} pts</div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
