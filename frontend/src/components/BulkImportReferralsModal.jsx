@@ -59,8 +59,8 @@ export default function BulkImportReferralsModal({ onClose, onImported }) {
           <p style={{ fontSize: 14, color: "var(--ink-soft)", marginTop: -4 }}>
             For patients who were already referred and treated before this system was in use.
             Only <strong>Name</strong> and <strong>File No.</strong> are required — Age, Gender, Phone,
-            Referred By, Visit Type, Panel, Credit Amount, Submitted Date, and Discharged Date are all optional.
-            Rows are imported as <strong>Credited</strong>.
+            Referred By, Marketing Person, Visit Type, Panel, Credit Amount, Submitted Date, and Discharged Date
+            are all optional. Rows are imported as <strong>Credited</strong>.
           </p>
 
           <button type="button" className="secondary" style={{ width: "auto", padding: "8px 14px", marginBottom: 16 }} onClick={downloadTemplate}>
@@ -77,7 +77,8 @@ export default function BulkImportReferralsModal({ onClose, onImported }) {
 
           <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>
             If "Referred By" is left blank, the patient is filed under a shared "Self" leader.
-            A name that isn't in your Leaders list yet gets created automatically.
+            A name that isn't in your Leaders list yet gets created automatically. "Marketing Person" works
+            the same way, and is linked to that leader only if the leader doesn't already have one set.
           </p>
 
           {error && <p className="error">{error}</p>}
@@ -95,6 +96,11 @@ export default function BulkImportReferralsModal({ onClose, onImported }) {
           {result.newLeadersCreated > 0 && (
             <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: -4 }}>
               {result.newLeadersCreated} new leader{result.newLeadersCreated === 1 ? "" : "s"} were created from the "Referred By" column.
+            </p>
+          )}
+          {result.newMarketingPersonsCreated > 0 && (
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: -4 }}>
+              {result.newMarketingPersonsCreated} new marketing person{result.newMarketingPersonsCreated === 1 ? "" : "s"} were created from the "Marketing Person" column.
             </p>
           )}
 

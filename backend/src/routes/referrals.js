@@ -171,6 +171,7 @@ router.get("/bulk-import/template", requireAuth, requireRole("ADMIN"), async (re
     { header: "Gender", key: "gender", width: 10 },
     { header: "Phone", key: "phone", width: 16 },
     { header: "Referred By", key: "referredBy", width: 22 },
+    { header: "Marketing Person", key: "marketingPerson", width: 22 },
     { header: "Visit Type", key: "visitType", width: 12 },
     { header: "Panel", key: "panel", width: 26 },
     { header: "Credit Amount", key: "creditAmount", width: 14 },
@@ -178,8 +179,8 @@ router.get("/bulk-import/template", requireAuth, requireRole("ADMIN"), async (re
     { header: "Discharged Date", key: "dischargedDate", width: 16 },
   ];
   sheet.getRow(1).font = { bold: true };
-  sheet.addRow({ name: "Ramesh Kumar", fileNumber: "IPD-3001", age: 45, gender: "Male", phone: "9876500000", referredBy: "Dr Niraj", visitType: "IPD", panel: "CGHS", creditAmount: "", submittedDate: "", dischargedDate: "" });
-  sheet.addRow({ name: "Sunita Devi", fileNumber: "OPD-3002", age: 30, gender: "Female", phone: "", referredBy: "", visitType: "OPD", panel: "", creditAmount: "", submittedDate: "", dischargedDate: "" });
+  sheet.addRow({ name: "Ramesh Kumar", fileNumber: "IPD-3001", age: 45, gender: "Male", phone: "9876500000", referredBy: "Dr Niraj", marketingPerson: "Munesh Rana", visitType: "IPD", panel: "CGHS", creditAmount: "", submittedDate: "", dischargedDate: "" });
+  sheet.addRow({ name: "Sunita Devi", fileNumber: "OPD-3002", age: 30, gender: "Female", phone: "", referredBy: "", marketingPerson: "", visitType: "OPD", panel: "", creditAmount: "", submittedDate: "", dischargedDate: "" });
 
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", "attachment; filename=referred-patients-bulk-import-template.xlsx");
@@ -193,7 +194,9 @@ router.get("/bulk-import/template", requireAuth, requireRole("ADMIN"), async (re
 // confirmed/admitted in real life). "Referred By" is matched against existing leaders by
 // name (case-insensitive); an unrecognized name auto-creates a new leader, same as the
 // leader bulk import. A blank "Referred By" falls back to a shared "Self" leader per
-// hospital (created once, reused for every such row).
+// hospital (created once, reused for every such row). "Marketing Person" is matched/created
+// the same way and, if the resolved leader doesn't already have one assigned, links the two —
+// it never overwrites a marketing person already set for that leader via the Leaders tab.
 router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
@@ -222,6 +225,7 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
   const genderCol = findCol("gender", "patient gender");
   const phoneCol = findCol("phone", "mobile", "patient phone");
   const referredByCol = findCol("referred by", "leader", "doctor");
+  const marketingPersonCol = findCol("marketing person", "marketing", "through");
   const visitTypeCol = findCol("visit type", "visit", "type");
   const panelCol = findCol("panel");
   const creditCol = findCol("credit amount", "credit", "amount");
@@ -244,6 +248,11 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
   const leaderCache = new Map(existingLeaders.map((d) => [d.name.trim().toLowerCase(), d]));
   let selfLeader = leaderCache.get("self") || null;
   let newLeadersCreated = 0;
+
+  // Same caching approach for marketing persons, matched/created by name.
+  const existingMarketingPersons = await prisma.marketingPerson.findMany({ where: { hospitalId: req.user.hospitalId } });
+  const marketingCache = new Map(existingMarketingPersons.map((m) => [m.name.trim().toLowerCase(), m]));
+  let newMarketingPersonsCreated = 0;
 
   const getCell = (row, col) => (col ? row.getCell(col).value : null);
   const getText = (row, col) => {
@@ -296,6 +305,20 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
     }
 
     try {
+      // Resolve the marketing person for this row (optional), matched by name or auto-created.
+      const marketingPersonText = getText(row, marketingPersonCol);
+      let marketingPersonId = null;
+      if (marketingPersonText) {
+        const mKey = marketingPersonText.toLowerCase();
+        let marketingPerson = marketingCache.get(mKey);
+        if (!marketingPerson) {
+          marketingPerson = await prisma.marketingPerson.create({ data: { name: marketingPersonText, hospitalId: req.user.hospitalId } });
+          marketingCache.set(mKey, marketingPerson);
+          newMarketingPersonsCreated += 1;
+        }
+        marketingPersonId = marketingPerson.id;
+      }
+
       // Resolve the referring leader: existing match, quick-create, or fall back to "Self".
       const referredByText = getText(row, referredByCol);
       let doctor;
@@ -303,13 +326,21 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
         const key = referredByText.toLowerCase();
         doctor = leaderCache.get(key);
         if (!doctor) {
-          doctor = await prisma.doctor.create({ data: { name: referredByText, hospitalId: req.user.hospitalId } });
+          doctor = await prisma.doctor.create({ data: { name: referredByText, hospitalId: req.user.hospitalId, marketingPersonId } });
           leaderCache.set(key, doctor);
           newLeadersCreated += 1;
+        } else if (marketingPersonId && !doctor.marketingPersonId) {
+          // Leader already existed with no marketing person set — fill it in from this row.
+          // Never overwrites one already assigned, e.g. via the Leaders tab.
+          doctor = await prisma.doctor.update({ where: { id: doctor.id }, data: { marketingPersonId } });
+          leaderCache.set(key, doctor);
         }
       } else {
         if (!selfLeader) {
-          selfLeader = await prisma.doctor.create({ data: { name: "Self", hospitalId: req.user.hospitalId } });
+          selfLeader = await prisma.doctor.create({ data: { name: "Self", hospitalId: req.user.hospitalId, marketingPersonId } });
+          leaderCache.set("self", selfLeader);
+        } else if (marketingPersonId && !selfLeader.marketingPersonId) {
+          selfLeader = await prisma.doctor.update({ where: { id: selfLeader.id }, data: { marketingPersonId } });
           leaderCache.set("self", selfLeader);
         }
         doctor = selfLeader;
@@ -380,6 +411,7 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
     skippedCount: skipped.length,
     skipped,
     newLeadersCreated,
+    newMarketingPersonsCreated,
     batchId: created.length > 0 ? batch.id : null,
   });
 });
