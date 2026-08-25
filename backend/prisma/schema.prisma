@@ -48,6 +48,7 @@ model Hospital {
   doctors     Doctor[]
   customRoles CustomRole[]
   marketingPersons MarketingPerson[]
+  importBatches    ImportBatch[]
 }
 
 model MarketingPerson {
@@ -163,9 +164,39 @@ model Referral {
   // usually once the file number is known. Free text so new panels don't need a code change.
   panel           String?
 
+  // Set when this referral was created via the "All Referrals" bulk import (Excel upload),
+  // so the whole batch can be reviewed and undone together later. Null for referrals created
+  // any other way (QR scan, manual add), and for rows imported before this field existed.
+  importBatchId   String?
+  importBatch     ImportBatch?   @relation(fields: [importBatchId], references: [id])
+
   createdAt       DateTime       @default(now())
 
   transaction     CreditTransaction?
+}
+
+// One row per "Bulk import" Excel upload on the All Referrals tab. Lets an admin see the
+// history of past imports and undo one as a whole (deleting the referrals + any credits
+// it created), rather than having to hunt down and delete rows one at a time.
+model ImportBatch {
+  id               String    @id @default(uuid())
+  hospitalId       String
+  hospital         Hospital  @relation(fields: [hospitalId], references: [id])
+
+  fileName         String?
+  importedByUserId String
+  importedByName   String    // captured at import time so the label survives a staff account being deleted later
+
+  createdCount     Int       @default(0)
+  skippedCount     Int       @default(0)
+
+  createdAt        DateTime  @default(now())
+  // Set once an admin undoes this import. The batch row itself is kept (rather than
+  // deleted) as a permanent audit trail of what was imported and when it was reverted.
+  revertedAt       DateTime?
+  revertedByUserId String?
+
+  referrals        Referral[]
 }
 
 model CreditTransaction {

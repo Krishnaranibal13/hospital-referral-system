@@ -269,6 +269,17 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
     return t === "IPD" || t === "OPD" ? t : null;
   };
 
+  // One row tying every referral created by this upload together, so the whole import can
+  // be reviewed and undone as a unit later from "Import history" instead of row-by-row.
+  const batch = await prisma.importBatch.create({
+    data: {
+      hospitalId: req.user.hospitalId,
+      fileName: req.file.originalname || null,
+      importedByUserId: req.user.id,
+      importedByName: req.user.name,
+    },
+  });
+
   const created = [];
   const skipped = [];
 
@@ -331,6 +342,7 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
           panel,
           arrivedAt: submittedDate || new Date(),
           dischargedAt: dischargedDate,
+          importBatchId: batch.id,
           ...(submittedDate ? { createdAt: submittedDate } : {}),
         },
       });
@@ -352,7 +364,95 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
     }
   }
 
-  res.json({ createdCount: created.length, skippedCount: skipped.length, skipped, newLeadersCreated });
+  if (created.length === 0) {
+    // Nothing actually landed (every row was skipped) — don't leave a phantom empty
+    // batch cluttering the import history.
+    await prisma.importBatch.delete({ where: { id: batch.id } });
+  } else {
+    await prisma.importBatch.update({
+      where: { id: batch.id },
+      data: { createdCount: created.length, skippedCount: skipped.length },
+    });
+  }
+
+  res.json({
+    createdCount: created.length,
+    skippedCount: skipped.length,
+    skipped,
+    newLeadersCreated,
+    batchId: created.length > 0 ? batch.id : null,
+  });
+});
+
+// GET /api/referrals/bulk-import/batches  (admin) - history of past "Bulk import" uploads on
+// the All Referrals tab, so an admin can find one and undo it if it was done in error (wrong
+// file, duplicated upload, etc). Most recent first.
+router.get("/bulk-import/batches", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const batches = await prisma.importBatch.findMany({
+    where: { hospitalId: req.user.hospitalId },
+    orderBy: { createdAt: "desc" },
+    take: 25,
+    include: {
+      referrals: { select: { transaction: { select: { redeemed: true } } } },
+    },
+  });
+
+  res.json({
+    batches: batches.map((b) => ({
+      id: b.id,
+      fileName: b.fileName,
+      importedByName: b.importedByName,
+      createdCount: b.createdCount,
+      skippedCount: b.skippedCount,
+      // How many of the originally-imported rows are still present & undeletable-as-is.
+      // Can be lower than createdCount if some rows were since deleted/edited individually.
+      remainingCount: b.referrals.length,
+      redeemedCount: b.referrals.filter((r) => r.transaction?.redeemed).length,
+      createdAt: b.createdAt,
+      revertedAt: b.revertedAt,
+    })),
+  });
+});
+
+// POST /api/referrals/bulk-import/batches/:batchId/revert  (admin) - undoes one bulk import:
+// deletes every referral (and any credit it generated) that this upload created. Refuses if
+// any of those credits have already been marked "Paid" (redeemed) — that means money may
+// already have changed hands, so those rows need a human to look at them individually rather
+// than being silently deleted.
+router.post("/bulk-import/batches/:batchId/revert", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const batch = await prisma.importBatch.findFirst({
+    where: { id: req.params.batchId, hospitalId: req.user.hospitalId },
+  });
+  if (!batch) return res.status(404).json({ error: "Import batch not found" });
+  if (batch.revertedAt) return res.status(400).json({ error: "This import was already reverted" });
+
+  const referrals = await prisma.referral.findMany({
+    where: { importBatchId: batch.id },
+    select: { id: true, transaction: { select: { redeemed: true } } },
+  });
+
+  const redeemedCount = referrals.filter((r) => r.transaction?.redeemed).length;
+  if (redeemedCount > 0) {
+    return res.status(409).json({
+      error:
+        `${redeemedCount} patient${redeemedCount === 1 ? "" : "s"} from this import already have a credit ` +
+        `payout marked "Paid" — those can't be auto-reverted. Please handle those rows individually first, ` +
+        `then try again.`,
+      redeemedCount,
+    });
+  }
+
+  const referralIds = referrals.map((r) => r.id);
+  await prisma.$transaction([
+    prisma.creditTransaction.deleteMany({ where: { referralId: { in: referralIds } } }),
+    prisma.referral.deleteMany({ where: { id: { in: referralIds } } }),
+    prisma.importBatch.update({
+      where: { id: batch.id },
+      data: { revertedAt: new Date(), revertedByUserId: req.user.id },
+    }),
+  ]);
+
+  res.json({ revertedCount: referralIds.length });
 });
 
 // PATCH /api/referrals/:id/panel  (reception + admin) - set or clear which insurance
@@ -751,6 +851,31 @@ router.post("/:id/redeem", requireAuth, requireAccess(["ADMIN"], ["REDEEM_CREDIT
     data,
   });
   res.json(updated);
+});
+
+// DELETE /api/referrals/:id  (admin only) - permanently removes a single referral row and any
+// credit it generated. Meant for one-off cleanup (wrong entry, duplicate, mistaken import row)
+// rather than routine use — normal workflow is Reject, not delete. Refuses if the credit has
+// already been marked "Paid" (redeemed), since money may have already changed hands.
+router.delete("/:id", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const referral = await prisma.referral.findFirst({
+    where: { id: req.params.id, doctor: { hospitalId: req.user.hospitalId } },
+    include: { transaction: true },
+  });
+  if (!referral) return res.status(404).json({ error: "Referral not found" });
+
+  if (referral.transaction?.redeemed) {
+    return res.status(409).json({
+      error: "This patient's credit payout is already marked \"Paid\" and can't be deleted. Contact support if this needs to be undone.",
+    });
+  }
+
+  await prisma.$transaction([
+    prisma.creditTransaction.deleteMany({ where: { referralId: referral.id } }),
+    prisma.referral.delete({ where: { id: referral.id } }),
+  ]);
+
+  res.json({ message: "Patient removed" });
 });
 
 export default router;

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone, QrCode,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone, QrCode, History,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -19,6 +19,7 @@ import ConfirmLeadModal from "../components/ConfirmLeadModal";
 import ConvertToIpdModal from "../components/ConvertToIpdModal";
 import BulkImportLeadersModal from "../components/BulkImportLeadersModal";
 import BulkImportReferralsModal from "../components/BulkImportReferralsModal";
+import ImportHistoryModal from "../components/ImportHistoryModal";
 import EditLeaderModal from "../components/EditLeaderModal";
 import AddPatientModal from "../components/AddPatientModal";
 import { PANEL_OPTIONS } from "../utils/panels";
@@ -71,6 +72,7 @@ export default function AdminDashboard() {
   const [showDoctorForm, setShowDoctorForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showBulkImportReferrals, setShowBulkImportReferrals] = useState(false);
+  const [showImportHistory, setShowImportHistory] = useState(false);
   const [editingLeader, setEditingLeader] = useState(null);
   const [doctorForm, setDoctorForm] = useState({ name: "", specialty: "", phone: "", email: "", clinicName: "", city: "", marketingPersonId: "", creditAmount: 0 });
   const [marketingPersons, setMarketingPersons] = useState([]);
@@ -419,6 +421,20 @@ export default function AdminDashboard() {
       loadReferrals();
     } catch (err) {
       setMessage(err.response?.data?.error || "Failed to mark as discharged");
+    }
+  }
+
+  async function deleteReferral(referral) {
+    if (!confirm(`Permanently delete ${referral.patientName}'s referral? This can't be undone.`)) return;
+    setMessage("");
+    try {
+      await api.delete(`/referrals/${referral.id}`);
+      setMessage(`${referral.patientName}'s referral was deleted.`);
+      loadReferrals();
+      loadDoctorsAndStaff();
+      loadDashboard();
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to delete this referral");
     }
   }
 
@@ -1188,6 +1204,7 @@ export default function AdminDashboard() {
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={{ width: "auto", padding: "6px 14px" }} onClick={() => setShowAddPatient(true)}><UserPlus size={14} />Add patient</button>
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setShowBulkImportReferrals(true)}><Upload size={14} />Bulk import</button>
+                <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => setShowImportHistory(true)}><History size={14} />Import history</button>
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => exportReferrals("excel")}><Download size={14} />Excel</button>
                 <button className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={() => exportReferrals("pdf")}><Download size={14} />PDF</button>
               </div>
@@ -1290,6 +1307,7 @@ export default function AdminDashboard() {
                               <Wallet size={14} />Redeem
                             </button>
                           )}
+                          <button className="danger" style={{ width: "auto", padding: "6px 10px" }} onClick={() => deleteReferral(r)} title="Delete this referral"><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>
@@ -1366,6 +1384,12 @@ export default function AdminDashboard() {
         <BulkImportReferralsModal
           onClose={() => setShowBulkImportReferrals(false)}
           onImported={() => { loadReferrals(); loadDoctorsAndStaff(); loadDashboard(); }}
+        />
+      )}
+      {showImportHistory && (
+        <ImportHistoryModal
+          onClose={() => setShowImportHistory(false)}
+          onReverted={() => { loadReferrals(); loadDoctorsAndStaff(); loadDashboard(); }}
         />
       )}
       {editingLeader && (
