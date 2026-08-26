@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { History, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { History, ChevronLeft, ChevronRight, RotateCcw, Download } from "lucide-react";
 import EmptyState from "./EmptyState";
 import DateRangePicker from "./DateRangePicker";
 import api from "../api/client";
@@ -53,6 +53,7 @@ export default function ActivityLogPanel() {
   const [actorUserId, setActorUserId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     api.get("/activity-log/filters").then(({ data }) => setFilterOptions(data)).catch(() => {});
@@ -100,11 +101,43 @@ export default function ActivityLogPanel() {
   }
   const hasFilters = entityType || action || actorUserId || dateFrom || dateTo;
 
+  async function exportExcel() {
+    setExporting(true);
+    setError("");
+    try {
+      const params = {};
+      if (entityType) params.entityType = entityType;
+      if (action) params.action = action;
+      if (actorUserId) params.actorUserId = actorUserId;
+      if (dateFrom) params.from = dateFrom;
+      if (dateTo) params.to = dateTo;
+      const res = await api.get("/activity-log/export/excel", { params, responseType: "blob" });
+      const blob = new Blob([res.data]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "activity-log.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError("Failed to export the activity log");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="card">
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <History size={18} color="var(--teal-600)" />
-        <h3 style={{ margin: 0 }}>Activity Log</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <History size={18} color="var(--teal-600)" />
+          <h3 style={{ margin: 0 }}>Activity Log</h3>
+        </div>
+        <button type="button" className="secondary" style={{ width: "auto", padding: "6px 14px" }} onClick={exportExcel} disabled={exporting}>
+          <Download size={14} />{exporting ? "Exporting…" : "Export to Excel"}
+        </button>
       </div>
       <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 4, marginBottom: 16 }}>
         Every change across referrals, payouts, leaders, marketing team, and staff — who did it, when, and what it was before/after.
@@ -151,52 +184,66 @@ export default function ActivityLogPanel() {
       ) : (
         <>
           <p style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 }}>{total} entr{total === 1 ? "y" : "ies"}</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {entries.map((e) => (
-              <div key={e.id} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span
-                      style={{
-                        fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
-                        color: actionColor(e.action), background: `${actionColor(e.action)}15`,
-                      }}
-                    >
-                      {actionLabel(e.action)}
-                    </span>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{e.entityLabel || e.entityType}</span>
-                  </div>
-                  <span style={{ fontSize: 12, color: "var(--ink-soft)", whiteSpace: "nowrap" }}>{formatDateTime(e.createdAt)}</span>
-                </div>
-
-                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 4 }}>
-                  by <strong style={{ color: "var(--ink)" }}>{e.actorName}</strong>
-                  {e.actorRole ? ` (${e.actorRole})` : ""}
-                </div>
-
-                {e.changes && Object.keys(e.changes).length > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
-                    {Object.entries(e.changes).map(([field, { from, to }]) => (
-                      <div key={field} style={{ fontSize: 12.5 }}>
-                        <span style={{ color: "var(--ink-soft)" }}>{field}:</span>{" "}
-                        <span style={{ textDecoration: "line-through", color: "var(--ink-soft)" }}>{formatValue(from)}</span>
-                        {" → "}
-                        <span style={{ fontWeight: 600 }}>{formatValue(to)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {e.metadata && Object.keys(e.metadata).length > 0 && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-soft)" }}>
-                    {Object.entries(e.metadata)
-                      .filter(([, v]) => v !== null && v !== undefined && v !== "")
-                      .map(([k, v]) => `${k}: ${formatValue(Array.isArray(v) ? v.join(", ") : v)}`)
-                      .join("  ·  ")}
-                  </div>
-                )}
-              </div>
-            ))}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Action</th>
+                  <th>Entity</th>
+                  <th>Done by</th>
+                  <th>What changed</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id}>
+                    <td style={{ whiteSpace: "nowrap" }}>{formatDateTime(e.createdAt)}</td>
+                    <td>
+                      <span
+                        style={{
+                          fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, whiteSpace: "nowrap",
+                          color: actionColor(e.action), background: `${actionColor(e.action)}15`,
+                        }}
+                      >
+                        {actionLabel(e.action)}
+                      </span>
+                    </td>
+                    <td style={{ whiteSpace: "normal" }}>
+                      <div style={{ fontWeight: 600 }}>{e.entityLabel || "—"}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{e.entityType}</div>
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {e.actorName}
+                      {e.actorRole ? <span style={{ color: "var(--ink-soft)" }}> ({e.actorRole})</span> : ""}
+                    </td>
+                    <td style={{ whiteSpace: "normal", minWidth: 220 }}>
+                      {e.changes && Object.keys(e.changes).length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {Object.entries(e.changes).map(([field, { from, to }]) => (
+                            <div key={field} style={{ fontSize: 12.5 }}>
+                              <span style={{ color: "var(--ink-soft)" }}>{field}:</span>{" "}
+                              <span style={{ textDecoration: "line-through", color: "var(--ink-soft)" }}>{formatValue(from)}</span>
+                              {" → "}
+                              <span style={{ fontWeight: 600 }}>{formatValue(to)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : "—"}
+                    </td>
+                    <td style={{ whiteSpace: "normal", minWidth: 220, fontSize: 12, color: "var(--ink-soft)" }}>
+                      {e.metadata && Object.keys(e.metadata).length > 0
+                        ? Object.entries(e.metadata)
+                            .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                            .map(([k, v]) => `${k}: ${formatValue(Array.isArray(v) ? v.join(", ") : v)}`)
+                            .join("  ·  ")
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           {totalPages > 1 && (
