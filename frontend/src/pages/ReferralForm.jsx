@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/client";
+import CardScanUpload from "../components/CardScanUpload";
 
 export default function ReferralForm() {
   const { doctorCode } = useParams();
@@ -8,10 +9,12 @@ export default function ReferralForm() {
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
   const [phone, setPhone] = useState("");
+  const [panel, setPanel] = useState("");
   const [locationStatus, setLocationStatus] = useState("idle"); // idle | requesting | granted | denied
   const [coords, setCoords] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [scanNote, setScanNote] = useState("");
   const [done, setDone] = useState(false);
   const [hospital, setHospital] = useState(null);
 
@@ -48,6 +51,23 @@ export default function ReferralForm() {
     );
   }
 
+  const CARD_LABELS = { AADHAAR: "Aadhaar", AYUSHMAN: "Ayushman", CGHS: "CGHS", ECHS: "ECHS", CAPF: "CAPF" };
+
+  function handleScanExtracted(result) {
+    if (result.patientName) setName(result.patientName);
+    if (result.patientAge) setAge(String(result.patientAge));
+    if (result.patientGender) setGender(result.patientGender);
+    if (result.panel) setPanel(result.panel);
+    const cardLabel = CARD_LABELS[result.cardType] || result.cardType;
+    const missing = [!result.patientName && "name", !result.patientAge && "age", !result.patientGender && "gender"].filter(Boolean);
+    const panelNote = result.panel ? ` Panel set to ${result.panel}.` : "";
+    setScanNote(
+      missing.length === 0
+        ? `Read from the ${cardLabel} card — please check it's correct before submitting.${panelNote}`
+        : `Read from the ${cardLabel} card, but couldn't find ${missing.join("/")} — please fill that in below.${panelNote}`
+    );
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
@@ -59,6 +79,7 @@ export default function ReferralForm() {
         patientAge: Number(age),
         patientGender: gender,
         patientPhone: phone || undefined,
+        panel: panel || undefined,
         scanLatitude: coords?.lat,
         scanLongitude: coords?.lon,
         scanAccuracyM: coords?.accuracy,
@@ -130,6 +151,9 @@ export default function ReferralForm() {
           )}
 
           <form onSubmit={handleSubmit}>
+            <CardScanUpload doctorCode={doctorCode} onExtracted={handleScanExtracted} />
+            {scanNote && <p style={{ fontSize: 12.5, color: "var(--teal-700)", marginTop: -10, marginBottom: 12 }}>{scanNote}</p>}
+
             <label>Patient name</label>
             <input value={name} onChange={(e) => setName(e.target.value)} required />
 

@@ -27,6 +27,7 @@ const referralSchema = z.object({
   patientAge: z.number().int().positive().max(130),
   patientPhone: z.string().optional(),
   patientGender: z.enum(["MALE", "FEMALE", "OTHER"]),
+  panel: z.string().optional(),
   scanLatitude: z.number().optional(),
   scanLongitude: z.number().optional(),
   scanAccuracyM: z.number().optional(),
@@ -85,7 +86,7 @@ router.post("/", publicLimiter, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { doctorCode, patientName, patientAge, patientPhone, patientGender, scanLatitude, scanLongitude, scanAccuracyM } =
+  const { doctorCode, patientName, patientAge, patientPhone, patientGender, panel, scanLatitude, scanLongitude, scanAccuracyM } =
     parsed.data;
 
   const doctor = await prisma.doctor.findUnique({ where: { uniqueCode: doctorCode } });
@@ -105,6 +106,7 @@ router.post("/", publicLimiter, async (req, res) => {
       patientAge,
       patientPhone,
       patientGender,
+      panel: panel || null,
       scanLatitude,
       scanLongitude,
       scanAccuracyM,
@@ -133,6 +135,7 @@ const manualReferralSchema = z.object({
   patientAge: z.number().int().positive().max(130),
   patientPhone: z.string().optional(),
   patientGender: z.enum(["MALE", "FEMALE", "OTHER"]),
+  panel: z.string().optional(),
 }).refine((data) => Boolean(data.doctorId) !== Boolean(data.newLeaderName), {
   message: "Provide either an existing leader (doctorId) or a new leader's name, not both or neither",
 });
@@ -149,7 +152,7 @@ router.post("/manual", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANA
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { doctorId, newLeaderName, patientName, patientAge, patientPhone, patientGender } = parsed.data;
+  const { doctorId, newLeaderName, patientName, patientAge, patientPhone, patientGender, panel } = parsed.data;
 
   let doctor;
   let newLeaderCreated = false;
@@ -164,7 +167,7 @@ router.post("/manual", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANA
   }
 
   const referral = await prisma.referral.create({
-    data: { doctorId: doctor.id, patientName, patientAge, patientPhone, patientGender },
+    data: { doctorId: doctor.id, patientName, patientAge, patientPhone, patientGender, panel: panel || null },
   });
 
   if (newLeaderCreated) {

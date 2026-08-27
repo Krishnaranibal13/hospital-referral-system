@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { UserPlus } from "lucide-react";
 import Modal from "./Modal";
+import CardScanUpload from "./CardScanUpload";
 import api from "../api/client";
+import { PANEL_OPTIONS } from "../utils/panels";
 
 // A text input + suggestion dropdown for picking the referring leader. Typing filters the
 // existing list; if nothing matches exactly, an "Add ... as a new leader" option appears at
@@ -83,8 +85,10 @@ export default function AddPatientModal({ onClose, onAdded }) {
   const [patientAge, setPatientAge] = useState("");
   const [patientGender, setPatientGender] = useState("MALE");
   const [patientPhone, setPatientPhone] = useState("");
+  const [patientPanel, setPatientPanel] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [scanNote, setScanNote] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -98,6 +102,22 @@ export default function AddPatientModal({ onClose, onAdded }) {
       }
     })();
   }, []);
+
+  const CARD_LABELS = { AADHAAR: "Aadhaar", AYUSHMAN: "Ayushman", CGHS: "CGHS", ECHS: "ECHS", CAPF: "CAPF" };
+
+  function handleScanExtracted(result) {
+    if (result.patientName) setPatientName(result.patientName);
+    if (result.patientAge) setPatientAge(String(result.patientAge));
+    if (result.patientGender) setPatientGender(result.patientGender);
+    if (result.panel) setPatientPanel(result.panel);
+    const cardLabel = CARD_LABELS[result.cardType] || result.cardType;
+    const missing = [!result.patientName && "name", !result.patientAge && "age", !result.patientGender && "gender"].filter(Boolean);
+    setScanNote(
+      missing.length === 0
+        ? `Read from ${cardLabel} card — please double-check before submitting.`
+        : `Read from ${cardLabel} card, but couldn't find ${missing.join("/")} — please fill that in.`
+    );
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -113,6 +133,7 @@ export default function AddPatientModal({ onClose, onAdded }) {
         patientAge: Number(patientAge),
         patientGender,
         patientPhone: patientPhone.trim() || undefined,
+        panel: patientPanel || undefined,
         ...(referrer.mode === "existing" ? { doctorId: referrer.doctorId } : { newLeaderName: referrer.newLeaderName }),
       };
       const { data } = await api.post("/referrals/manual", payload);
@@ -126,6 +147,9 @@ export default function AddPatientModal({ onClose, onAdded }) {
   return (
     <Modal title="Add patient" onClose={onClose} width={440}>
       <form onSubmit={handleSubmit}>
+        <CardScanUpload onExtracted={handleScanExtracted} />
+        {scanNote && <p style={{ fontSize: 12.5, color: "var(--teal-700)", marginTop: -10, marginBottom: 12 }}>{scanNote}</p>}
+
         <label>Referred by</label>
         <LeaderCombobox
           leaders={leaders}
@@ -163,6 +187,12 @@ export default function AddPatientModal({ onClose, onAdded }) {
 
         <label>Patient phone (optional)</label>
         <input value={patientPhone} onChange={(e) => setPatientPhone(e.target.value)} placeholder="e.g. 98765 43210" />
+
+        <label>Panel (optional)</label>
+        <select value={patientPanel} onChange={(e) => setPatientPanel(e.target.value)}>
+          <option value="">— None —</option>
+          {PANEL_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
 
         {error && <p className="error">{error}</p>}
 
