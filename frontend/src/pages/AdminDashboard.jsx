@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Stethoscope, Users, ClipboardList, Plus, Power,
   Wallet, Trash2, KeyRound, Download, Search, CheckCircle2,
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, Activity, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone, QrCode, History,
+  Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone, QrCode, History,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import api from "../api/client";
@@ -51,7 +51,6 @@ const REFERRAL_TABS = [
   { key: "", label: "All" },
 ];
 const DOCTORS_PAGE_SIZE = 8;
-const RECENT_PAGE_SIZE = 7;
 const REFERRALS_PAGE_SIZE = 50;
 
 const DASHBOARD_PERIODS = [["week", "7D"], ["month", "30D"], ["3months", "3M"], ["6months", "6M"], ["year", "1Y"]];
@@ -99,7 +98,6 @@ export default function AdminDashboard() {
   const [redemptionsPeriod, setRedemptionsPeriod] = useState("month");
   const [expandedPendingDoctorId, setExpandedPendingDoctorId] = useState(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
-  const [recentPage, setRecentPage] = useState(1);
 
   const [showDoctorForm, setShowDoctorForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
@@ -245,7 +243,6 @@ export default function AdminDashboard() {
   useEffect(() => { if (activeTab === "All Referrals") setReferralPage(1); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo]);
   useEffect(() => { if (activeTab === "All Referrals") loadReferrals(); }, [activeTab, referralTab, referralDoctorId, referralDateFrom, referralDateTo, referralPage]);
   useEffect(() => { setDoctorPage(1); }, [doctorSearch, doctorStatusFilter, doctorDateFrom, doctorDateTo]);
-  useEffect(() => { setRecentPage(1); }, [dashboardData]);
 
   async function handleCreateDoctor(e) {
     e.preventDefault();
@@ -541,7 +538,6 @@ export default function AdminDashboard() {
 
   const doctorPageCount = Math.max(1, Math.ceil(filteredSortedDoctors.length / DOCTORS_PAGE_SIZE));
   const referralPageCount = Math.max(1, Math.ceil(referralTotal / REFERRALS_PAGE_SIZE));
-  const recentPageCount = Math.max(1, Math.ceil((dashboardData?.recentReferrals?.length || 0) / RECENT_PAGE_SIZE));
   const paginatedDoctors = filteredSortedDoctors.slice((doctorPage - 1) * DOCTORS_PAGE_SIZE, doctorPage * DOCTORS_PAGE_SIZE);
 
   function toggleMarketingSort(key) {
@@ -819,58 +815,45 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="card" style={{ marginBottom: 20 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                    <Activity size={16} color="var(--teal-600)" />
-                    <h3 style={{ margin: 0 }}>Recent referrals</h3>
-                  </div>
-                  {dashboardData.recentReferrals.length === 0 ? (
-                    <EmptyState icon={ClipboardList} title="No referrals yet" subtitle="They'll show up here as doctors submit them" />
-                  ) : (
-                    <>
-                      <div className="table-wrap">
-                        <table>
-                          <thead><tr><th>Patient</th><th>Referred by</th><th>Status</th><th>Submitted</th></tr></thead>
-                          <tbody>
-                            {dashboardData.recentReferrals
-                              .slice((recentPage - 1) * RECENT_PAGE_SIZE, recentPage * RECENT_PAGE_SIZE)
-                              .map((r) => (
-                                <tr key={r.id}>
-                                  <td>{r.patientName}</td>
-                                  <td>{r.doctor?.name}{r.doctor?.clinicName ? ` (${r.doctor.clinicName})` : ""}</td>
-                                  <td><span className={`badge ${r.status}`}>{r.status}</span></td>
-                                  <td>{formatDateTime(r.createdAt)}</td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {recentPageCount > 1 && (
-                        <div className="pagination">
-                          <button disabled={recentPage === 1} onClick={() => setRecentPage((p) => p - 1)}><ChevronLeft size={14} /></button>
-                          {Array.from({ length: recentPageCount }, (_, i) => i + 1).map((p) => (
-                            <button key={p} className={p === recentPage ? "active" : ""} onClick={() => setRecentPage(p)}>{p}</button>
-                          ))}
-                          <button disabled={recentPage === recentPageCount} onClick={() => setRecentPage((p) => p + 1)}><ChevronRight size={14} /></button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
                 <div className="card">
-                  <h3 style={{ marginTop: 0 }}>Quick actions</h3>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <button style={{ width: "auto", padding: "10px 18px" }} onClick={() => { setActiveTab("Doctors"); setShowDoctorForm(true); }}>
-                      <Plus size={15} />Add leader
-                    </button>
-                    <button className="secondary" style={{ width: "auto", padding: "10px 18px" }} onClick={() => { setActiveTab("Staff"); setShowStaffForm(true); }}>
-                      <Plus size={15} />Add staff
-                    </button>
-                    <button className="secondary" style={{ width: "auto", padding: "10px 18px" }} onClick={() => setActiveTab("All Referrals")}>
-                      <ClipboardList size={15} />View all referrals
-                    </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <Megaphone size={16} color="var(--teal-600)" />
+                    <h3 style={{ margin: 0 }}>Marketing employee comparison</h3>
                   </div>
+                  <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 4, marginBottom: 12 }}>
+                    Leads and credit points per employee, side by side across every window at once.
+                  </p>
+                  {(dashboardData.marketingComparison || []).length === 0 ? (
+                    <EmptyState icon={Megaphone} title="No marketing employees yet" subtitle="Add them from the Marketing Team tab" />
+                  ) : (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Marketing employee</th>
+                            <th>Weekly</th>
+                            <th>Fortnightly</th>
+                            <th>Monthly</th>
+                            <th>3 Months</th>
+                            <th>6 Months</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dashboardData.marketingComparison.map((m) => (
+                            <tr key={m.id}>
+                              <td style={{ fontWeight: 600 }}>{m.name}</td>
+                              {["week", "fortnight", "month", "3months", "6months"].map((key) => (
+                                <td key={key}>
+                                  <div>{m.byPeriod[key].leadsCount} lead{m.byPeriod[key].leadsCount !== 1 ? "s" : ""}</div>
+                                  <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{m.byPeriod[key].amount.toFixed(2)} pts</div>
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </>
             )}

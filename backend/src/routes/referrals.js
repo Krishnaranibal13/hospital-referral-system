@@ -419,6 +419,11 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
             referralId: referral.id,
             amount: creditAmount,
             note: `Bulk-imported by ${req.user.name} — File No. ${fileNumber}`,
+            // Backdate to match the referral's own createdAt (the Excel row's Submitted
+            // Date) — otherwise every bulk-imported credit is dated "whenever the import
+            // ran," which bunches them all into the same day and makes the dashboard's
+            // 7D/30D/3M/6M/1Y period toggle show identical results regardless of period.
+            ...(submittedDate ? { createdAt: submittedDate } : {}),
           },
         });
       }

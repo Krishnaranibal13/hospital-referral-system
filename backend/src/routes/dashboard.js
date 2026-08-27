@@ -15,8 +15,8 @@ function withinPeriod(date, days) {
 
 // GET /api/dashboard/summary  (admin only) — everything the Admin Dashboard home page needs
 // in one call: KPI counts, a 14-day referral trend, top doctors, top marketing employees,
-// and pending redemptions grouped by doctor — each of the last three precomputed for every
-// toggle period so switching is instant with no extra requests — plus recent referrals.
+// pending redemptions grouped by doctor, and a full marketing-employee comparison table
+// across 5 fixed windows — plus recent referrals.
 router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const hospitalId = req.user.hospitalId;
 
@@ -113,6 +113,34 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
   }
   const pendingRedemptions = Object.fromEntries(Object.entries(PERIODS).map(([key, days]) => [key, pendingGroupsForPeriod(days)]));
 
+  // Marketing employee comparison table — every marketing person as one row, with leads +
+  // credit amount for each of 5 fixed windows as columns, all computed in a single pass over
+  // referrals (rather than the once-per-period reduction the toggle cards above use) since
+  // every period is shown at once here rather than picked one at a time.
+  const COMPARISON_PERIODS = { week: 7, fortnight: 14, month: 30, "3months": 90, "6months": 180 };
+  const comparisonByPerson = new Map(
+    marketingPersons.map((m) => [
+      m.id,
+      { id: m.id, name: m.name, byPeriod: Object.fromEntries(Object.keys(COMPARISON_PERIODS).map((k) => [k, { leadsCount: 0, amount: 0 }])) },
+    ])
+  );
+  for (const r of referrals) {
+    const mpId = r.doctor.marketingPersonId;
+    const row = mpId && comparisonByPerson.get(mpId);
+    if (!row) continue;
+    const amount = creditAmountByReferralId.get(r.id) || 0;
+    for (const [key, days] of Object.entries(COMPARISON_PERIODS)) {
+      if (withinPeriod(r.createdAt, days)) {
+        row.byPeriod[key].leadsCount += 1;
+        row.byPeriod[key].amount += amount;
+      }
+    }
+  }
+  // Busiest employees (by 6-month lead count) first.
+  const marketingComparison = Array.from(comparisonByPerson.values()).sort(
+    (a, b) => b.byPeriod["6months"].leadsCount - a.byPeriod["6months"].leadsCount
+  );
+
   const recentReferrals = referrals.slice(0, 30);
 
   res.json({
@@ -127,6 +155,7 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
     trend,
     topDoctors,
     topMarketingPersons,
+    marketingComparison,
     recentReferrals,
     pendingRedemptions,
   });
