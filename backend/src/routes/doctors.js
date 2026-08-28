@@ -205,6 +205,68 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
 });
 
 // GET /api/doctors  (admin) - list doctors within the admin's own hospital only
+// Windows offered by the leader comparison table's period columns/sort — matches the
+// marketing-employee comparison table exactly for consistency.
+const COMPARISON_PERIODS = { week: 7, fortnight: 14, month: 30, "3months": 90, "6months": 180 };
+const COMPARISON_PAGE_SIZE = 25;
+
+function withinPeriod(date, days) {
+  return new Date(date).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
+// GET /api/doctors/comparison  (admin only) — leads + credit points per leader, across 5
+// fixed time windows, for the Leaders tab's "Compare" view. Built to stay fast as the leader
+// count grows into the thousands: search/sort/pagination all happen server-side, so the
+// frontend only ever receives one page (25 rows) no matter how many leaders exist. The one
+// unavoidable per-request cost is a single pass over this hospital's referrals to bucket them
+// by period — that cost scales with referral volume, not leader count, and only runs when an
+// admin actually opens this view (it's not part of the main dashboard load).
+router.get("/comparison", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const hospitalId = req.user.hospitalId;
+  const { search } = req.query;
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const sortPeriod = Object.keys(COMPARISON_PERIODS).includes(req.query.sortPeriod) ? req.query.sortPeriod : "month";
+  const sortDir = req.query.sortDir === "asc" ? "asc" : "desc";
+
+  const doctorWhere = { hospitalId };
+  if (search) doctorWhere.name = { contains: search };
+
+  const [doctors, referrals, transactions] = await Promise.all([
+    prisma.doctor.findMany({ where: doctorWhere, select: { id: true, name: true, clinicName: true } }),
+    prisma.referral.findMany({ where: { doctor: { hospitalId } }, select: { id: true, doctorId: true, createdAt: true } }),
+    prisma.creditTransaction.findMany({ where: { doctor: { hospitalId } }, select: { referralId: true, amount: true } }),
+  ]);
+
+  const amountByReferralId = new Map(transactions.map((t) => [t.referralId, Number(t.amount)]));
+  const byDoctor = new Map(
+    doctors.map((d) => [
+      d.id,
+      { id: d.id, name: d.name, clinicName: d.clinicName, byPeriod: Object.fromEntries(Object.keys(COMPARISON_PERIODS).map((k) => [k, { leadsCount: 0, amount: 0 }])) },
+    ])
+  );
+  for (const r of referrals) {
+    const row = byDoctor.get(r.doctorId);
+    if (!row) continue; // filtered out by search, or a different hospital's row somehow — skip
+    const amount = amountByReferralId.get(r.id) || 0;
+    for (const [key, days] of Object.entries(COMPARISON_PERIODS)) {
+      if (withinPeriod(r.createdAt, days)) {
+        row.byPeriod[key].leadsCount += 1;
+        row.byPeriod[key].amount += amount;
+      }
+    }
+  }
+
+  const rows = Array.from(byDoctor.values()).sort((a, b) => {
+    const diff = a.byPeriod[sortPeriod].leadsCount - b.byPeriod[sortPeriod].leadsCount;
+    return sortDir === "asc" ? diff : -diff;
+  });
+
+  const total = rows.length;
+  const paged = rows.slice((page - 1) * COMPARISON_PAGE_SIZE, page * COMPARISON_PAGE_SIZE);
+
+  res.json({ rows: paged, total, page, pageSize: COMPARISON_PAGE_SIZE, totalPages: Math.max(1, Math.ceil(total / COMPARISON_PAGE_SIZE)) });
+});
+
 router.get("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const doctors = await prisma.doctor.findMany({
     where: { hospitalId: req.user.hospitalId },

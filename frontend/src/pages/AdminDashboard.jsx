@@ -28,6 +28,7 @@ import MarketingPersonModal from "../components/MarketingPersonModal";
 import MarketingPersonDetailModal from "../components/MarketingPersonDetailModal";
 import MarketingPersonQrModal from "../components/MarketingPersonQrModal";
 import ActivityLogPanel from "../components/ActivityLogPanel";
+import LeaderComparisonPanel from "../components/LeaderComparisonPanel";
 
 const NAV_ITEMS = [
   { key: "Dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -111,6 +112,7 @@ export default function AdminDashboard() {
   const [qrLoadingId, setQrLoadingId] = useState(null);
 
   const [doctorSearch, setDoctorSearch] = useState("");
+  const [leaderView, setLeaderView] = useState("list");
   const [doctorDateFrom, setDoctorDateFrom] = useState("");
   const [doctorDateTo, setDoctorDateTo] = useState("");
   const [doctorStatusFilter, setDoctorStatusFilter] = useState("all");
@@ -866,19 +868,53 @@ export default function AdminDashboard() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
               <h3 style={{ margin: 0 }}>Leaders</h3>
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="secondary" style={{ width: "auto", padding: "8px 16px" }} onClick={() => setShowBulkImport(true)}>
-                  <Upload size={16} />Bulk import
-                </button>
-                <button style={{ width: "auto", padding: "8px 16px" }} onClick={() => { setShowDoctorForm(!showDoctorForm); setNewDoctorQr(null); }}>
-                  {showDoctorForm ? <X size={16} /> : <Plus size={16} />}
-                  {showDoctorForm ? "Cancel" : "Add leader"}
-                </button>
+                <div style={{ display: "flex", gap: 2, background: "var(--teal-50)", borderRadius: 8, padding: 2 }}>
+                  <button
+                    type="button"
+                    onClick={() => setLeaderView("list")}
+                    style={{
+                      width: "auto", padding: "7px 14px", fontSize: 13, fontWeight: 600, border: "none",
+                      borderRadius: 6, cursor: "pointer",
+                      background: leaderView === "list" ? "var(--teal-600)" : "transparent",
+                      color: leaderView === "list" ? "#fff" : "var(--ink-soft)",
+                    }}
+                  >
+                    List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLeaderView("compare")}
+                    style={{
+                      width: "auto", padding: "7px 14px", fontSize: 13, fontWeight: 600, border: "none",
+                      borderRadius: 6, cursor: "pointer",
+                      background: leaderView === "compare" ? "var(--teal-600)" : "transparent",
+                      color: leaderView === "compare" ? "#fff" : "var(--ink-soft)",
+                    }}
+                  >
+                    Compare
+                  </button>
+                </div>
+                {leaderView === "list" && (
+                  <>
+                    <button className="secondary" style={{ width: "auto", padding: "8px 16px" }} onClick={() => setShowBulkImport(true)}>
+                      <Upload size={16} />Bulk import
+                    </button>
+                    <button style={{ width: "auto", padding: "8px 16px" }} onClick={() => { setShowDoctorForm(!showDoctorForm); setNewDoctorQr(null); }}>
+                      {showDoctorForm ? <X size={16} /> : <Plus size={16} />}
+                      {showDoctorForm ? "Cancel" : "Add leader"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             <p style={{ color: "var(--ink-soft)", fontSize: 13, marginTop: -6 }}>
               Doctors, ambulance staff, village Pradhans, or anyone else who refers patients to you.
             </p>
 
+            {leaderView === "compare" ? (
+              <LeaderComparisonPanel />
+            ) : (
+              <>
             {showDoctorForm && (
               <form onSubmit={handleCreateDoctor} style={{ marginTop: 16 }}>
                 <label>Name</label>
@@ -1006,6 +1042,8 @@ export default function AdminDashboard() {
                   </div>
                 )}
               </>
+            )}
+            </>
             )}
           </div>
         )}
