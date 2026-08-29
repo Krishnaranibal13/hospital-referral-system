@@ -6,6 +6,7 @@ import { z } from "zod";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole, requireAccess } from "../middleware/auth.js";
 import { logActivity, diffFields, ACTIONS } from "../utils/activityLog.js";
+import { startOfIstWeek, startOfIstMonth } from "../utils/istDate.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -265,6 +266,56 @@ router.get("/comparison", requireAuth, requireRole("ADMIN"), async (req, res) =>
   const paged = rows.slice((page - 1) * COMPARISON_PAGE_SIZE, page * COMPARISON_PAGE_SIZE);
 
   res.json({ rows: paged, total, page, pageSize: COMPARISON_PAGE_SIZE, totalPages: Math.max(1, Math.ceil(total / COMPARISON_PAGE_SIZE)) });
+});
+
+// GET /api/doctors/new-in-period  (admin only) — drill-down for the Dashboard's "New
+// leaders" card: exactly which leaders were added in the CURRENT week/month (matching
+// whichever bucket the card's headline number is for), and a breakdown of which marketing
+// person brought each of them in. The marketing breakdown always reflects the whole period
+// regardless of search — only the row list below it gets filtered — so the "who brought
+// them" summary stays stable while someone searches for a specific name.
+router.get("/new-in-period", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const hospitalId = req.user.hospitalId;
+  const period = req.query.period === "monthly" ? "monthly" : "weekly";
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const { search } = req.query;
+  const PAGE_SIZE = 25;
+
+  const start = period === "monthly" ? startOfIstMonth(0) : startOfIstWeek(0);
+
+  const all = await prisma.doctor.findMany({
+    where: { hospitalId, createdAt: { gte: start } },
+    select: { id: true, name: true, clinicName: true, createdAt: true, marketingPerson: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const byMarketingPerson = new Map();
+  for (const d of all) {
+    const key = d.marketingPerson?.id || "none";
+    const label = d.marketingPerson?.name || "Not linked to a marketing person";
+    if (!byMarketingPerson.has(key)) byMarketingPerson.set(key, { name: label, count: 0 });
+    byMarketingPerson.get(key).count += 1;
+  }
+  const marketingBreakdown = Array.from(byMarketingPerson.values()).sort((a, b) => b.count - a.count);
+
+  const filtered = search ? all.filter((d) => d.name.toLowerCase().includes(search.toLowerCase())) : all;
+  const total = filtered.length;
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((d) => ({
+    id: d.id,
+    name: d.name,
+    clinicName: d.clinicName,
+    createdAt: d.createdAt,
+    marketingPersonName: d.marketingPerson?.name || null,
+  }));
+
+  res.json({
+    total,
+    marketingBreakdown,
+    rows: paged,
+    page,
+    pageSize: PAGE_SIZE,
+    totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+  });
 });
 
 router.get("/", requireAuth, requireRole("ADMIN"), async (req, res) => {
