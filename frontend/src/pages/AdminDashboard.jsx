@@ -6,7 +6,7 @@ import {
   XCircle, MapPin, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
   Eye, TrendingUp, IndianRupee, UserCheck, Clock, Award, ArrowUpCircle, RotateCcw, Upload, LogOut, UserPlus, Pencil, Megaphone, QrCode, History,
 } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from "recharts";
 import api from "../api/client";
 import { formatDate, formatDateTime, formatShortDate } from "../utils/date";
 import Sidebar from "../components/Sidebar";
@@ -113,6 +113,7 @@ export default function AdminDashboard() {
 
   const [doctorSearch, setDoctorSearch] = useState("");
   const [leaderView, setLeaderView] = useState("list");
+  const [newLeadersPeriod, setNewLeadersPeriod] = useState("weekly");
   const [doctorDateFrom, setDoctorDateFrom] = useState("");
   const [doctorDateTo, setDoctorDateTo] = useState("");
   const [doctorStatusFilter, setDoctorStatusFilter] = useState("all");
@@ -716,6 +717,72 @@ export default function AdminDashboard() {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
+                </div>
+
+                <div className="card" style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <UserPlus size={16} color="var(--teal-600)" />
+                      <h3 style={{ margin: 0 }}>New leaders</h3>
+                    </div>
+                    <div style={{ display: "flex", gap: 2, background: "var(--teal-50)", borderRadius: 8, padding: 2 }}>
+                      {[["weekly", "Weekly"], ["monthly", "Monthly"]].map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setNewLeadersPeriod(key)}
+                          style={{
+                            width: "auto", padding: "5px 12px", fontSize: 12, fontWeight: 600, border: "none",
+                            borderRadius: 6, cursor: "pointer",
+                            background: newLeadersPeriod === key ? "var(--teal-600)" : "transparent",
+                            color: newLeadersPeriod === key ? "#fff" : "var(--ink-soft)",
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {(() => {
+                    const buckets = dashboardData.newLeadersTrend?.[newLeadersPeriod] || [];
+                    const current = buckets[buckets.length - 1];
+                    const previous = buckets[buckets.length - 2];
+                    const delta = current && previous ? current.count - previous.count : null;
+                    const periodWord = newLeadersPeriod === "weekly" ? "week" : "month";
+                    return (
+                      <>
+                        {current && (
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 28, fontWeight: 700, color: "var(--ink)" }}>{current.count}</span>
+                            <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>new leader{current.count !== 1 ? "s" : ""} this {periodWord}</span>
+                            {delta !== null && (
+                              <span style={{ fontSize: 13, fontWeight: 600, color: delta > 0 ? "#15803d" : delta < 0 ? "var(--red-700)" : "var(--ink-soft)" }}>
+                                {delta > 0 ? "▲" : delta < 0 ? "▼" : "—"} {Math.abs(delta)} vs last {periodWord} ({previous.count})
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div style={{ width: "100%", height: 140 }}>
+                          <ResponsiveContainer>
+                            <BarChart data={buckets} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                              <XAxis dataKey="label" fontSize={11} stroke="var(--ink-soft)" />
+                              <YAxis allowDecimals={false} fontSize={11} stroke="var(--ink-soft)" width={28} />
+                              <Tooltip />
+                              <Bar dataKey="count" name="New leaders" radius={[4, 4, 0, 0]}>
+                                {buckets.map((b, i) => (
+                                  <Cell key={i} fill={i === buckets.length - 1 ? "var(--teal-600)" : "var(--teal-500)"} fillOpacity={i === buckets.length - 1 ? 1 : 0.45} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <p style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6, marginBottom: 0 }}>
+                          The current {periodWord} is still in progress, so it may look lower than a full {periodWord} until it's over.
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 }}>

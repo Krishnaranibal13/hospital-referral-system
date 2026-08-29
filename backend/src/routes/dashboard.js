@@ -1,7 +1,7 @@
 import express from "express";
 import prisma from "../utils/prismaClient.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { istDateString, startOfIstDay } from "../utils/istDate.js";
+import { istDateString, startOfIstDay, startOfIstWeek, startOfIstMonth } from "../utils/istDate.js";
 
 const router = express.Router();
 
@@ -13,6 +13,38 @@ function withinPeriod(date, days) {
   return new Date(date).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
+// Calendar-week (Monday-start) and calendar-month buckets, in IST, oldest first, for the
+// "New leaders" growth chart. The most recent bucket is always the current (possibly
+// partial — e.g. "this week" might only be 2 days old so far) period, by design: it's the
+// one the headline comparison cares about, and a partial current period vs. a full prior one
+// is a normal, well-understood way to read a growth chart (like any analytics dashboard).
+function buildWeeklyBuckets(count) {
+  const buckets = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const start = startOfIstWeek(i);
+    const end = startOfIstWeek(i - 1);
+    buckets.push({ label: istDateString(start), start, end });
+  }
+  return buckets;
+}
+function buildMonthlyBuckets(count) {
+  const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const buckets = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const start = startOfIstMonth(i);
+    const end = startOfIstMonth(i - 1);
+    // `start` is already "IST midnight" as a UTC instant (e.g. Aug 1 00:00 IST == Jul 31
+    // 18:30 UTC) — shifting it by the IST offset again turns it into a value whose UTC
+    // calendar fields read correctly as the IST wall-clock date, the same trick istDateString
+    // uses. Formatting with `timeZone: "UTC"` directly would read the pre-shift UTC date and
+    // land a month early.
+    const shifted = new Date(start.getTime() + 5.5 * 60 * 60 * 1000);
+    const label = `${MONTH_NAMES[shifted.getUTCMonth()]} ${String(shifted.getUTCFullYear()).slice(-2)}`;
+    buckets.push({ label, start, end });
+  }
+  return buckets;
+}
+
 // GET /api/dashboard/summary  (admin only) — everything the Admin Dashboard home page needs
 // in one call: KPI counts, a 14-day referral trend, top doctors, top marketing employees,
 // pending redemptions grouped by doctor, and a full marketing-employee comparison table
@@ -21,7 +53,7 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
   const hospitalId = req.user.hospitalId;
 
   const [doctors, referrals, transactions, marketingPersons] = await Promise.all([
-    prisma.doctor.findMany({ where: { hospitalId }, select: { id: true, name: true, clinicName: true, active: true } }),
+    prisma.doctor.findMany({ where: { hospitalId }, select: { id: true, name: true, clinicName: true, active: true, createdAt: true } }),
     prisma.referral.findMany({
       where: { doctor: { hospitalId } },
       select: {
@@ -71,6 +103,19 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
     return Object.values(byDoctor).sort((a, b) => b.total - a.total).slice(0, 15);
   }
   const topDoctors = Object.fromEntries(Object.entries(PERIODS).map(([key, days]) => [key, topDoctorsForPeriod(days)]));
+
+  // New leaders added, bucketed by calendar week and calendar month — powers the "New
+  // leaders" growth card's headline ("this week vs last week") and its trend chart.
+  const newLeadersTrend = {
+    weekly: buildWeeklyBuckets(8).map((b) => ({
+      label: b.label,
+      count: doctors.filter((d) => d.createdAt >= b.start && d.createdAt < b.end).length,
+    })),
+    monthly: buildMonthlyBuckets(6).map((b) => ({
+      label: b.label,
+      count: doctors.filter((d) => d.createdAt >= b.start && d.createdAt < b.end).length,
+    })),
+  };
 
   // Top marketing employees, one ranking per toggle period. "Leads" = referrals brought in
   // by doctors linked to that marketing person (any status); "amount" = the credit points
@@ -154,6 +199,7 @@ router.get("/summary", requireAuth, requireRole("ADMIN"), async (req, res) => {
     },
     trend,
     topDoctors,
+    newLeadersTrend,
     topMarketingPersons,
     marketingComparison,
     recentReferrals,

@@ -22,6 +22,27 @@ export function startOfIstDay(daysAgo = 0) {
   return new Date(istMidnightUtcMs);
 }
 
+// The UTC instant corresponding to IST midnight on the Monday of the week `weeksAgo` weeks
+// before the current one (0 = this week's Monday, even if that's only a few days ago).
+export function startOfIstWeek(weeksAgo = 0) {
+  const now = new Date();
+  const shiftedNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const dow = shiftedNow.getUTCDay(); // 0=Sun..6=Sat
+  const daysSinceMonday = (dow + 6) % 7; // Mon=0
+  return startOfIstDay(daysSinceMonday + weeksAgo * 7);
+}
+
+// The UTC instant corresponding to IST midnight on the 1st of the month `monthsAgo` months
+// before the current one (0 = this month, even if that's only a few days in).
+export function startOfIstMonth(monthsAgo = 0) {
+  const now = new Date();
+  const shiftedNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const y = shiftedNow.getUTCFullYear();
+  const m = shiftedNow.getUTCMonth() - monthsAgo;
+  const istMidnightUtcMs = Date.UTC(y, m, 1, 0, 0, 0) - IST_OFFSET_MS;
+  return new Date(istMidnightUtcMs);
+}
+
 // The UTC instant range [start, end) covering one IST calendar day, given a
 // "YYYY-MM-DD" string as typed into a date picker.
 export function istDayBounds(dateStr) {

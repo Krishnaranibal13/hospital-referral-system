@@ -293,12 +293,58 @@ router.post("/bulk-import", requireAuth, requireRole("ADMIN"), upload.single("fi
     const v = getCell(row, col);
     return v === null || v === undefined ? "" : String(v).trim();
   };
+  const MONTH_INDEX = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  // Parses whatever ended up in the "Submitted Date" / "Discharged Date" cell. Deliberately
+  // NOT falling back to `new Date(v)` for a plain string — JS's native parser is unreliable
+  // for ambiguous day/month order, and for 2-digit years specifically has a documented quirk:
+  // it assumes 19xx, not 20xx (so "18/07/25" meant to be 2025 silently becomes 1925). That bug
+  // was traced back to real bulk-imported data showing dates like "18/07/55" instead of 2025,
+  // and to leaders whose imported referrals all clustered on the import date in the dashboard's
+  // period comparisons — both symptoms of this same root cause (a string that failed or
+  // mis-parsed, silently falling back to "now").
   const parseDate = (row, col) => {
     const v = getCell(row, col);
     if (!v) return null;
-    if (v instanceof Date) return v;
-    const parsed = new Date(v);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+    if (typeof v === "number") {
+      // Excel's own "serial date" number (days since 1899-12-30) — happens when a cell holds
+      // a date but ExcelJS didn't surface it as a JS Date, e.g. some CSV-derived sheets.
+      const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const str = String(v).trim();
+    const iso = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) {
+      const d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    // DD/MM/YYYY or DD-MM-YYYY (Indian convention) — the 4-digit-year case is unambiguous.
+    const fourDigitYear = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (fourDigitYear) {
+      const [, day, month, year] = fourDigitYear;
+      const d = new Date(Number(year), Number(month) - 1, Number(day));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    // Same, but a 2-digit year — assume 2000s rather than JS's native 1900s default, since
+    // every plausible "Submitted Date" on this system is recent, never turn-of-the-century.
+    const twoDigitYear = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2})$/);
+    if (twoDigitYear) {
+      const [, day, month, year] = twoDigitYear;
+      const d = new Date(2000 + Number(year), Number(month) - 1, Number(day));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const textMonth = str.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$/);
+    if (textMonth) {
+      const monthIdx = MONTH_INDEX[textMonth[2].toLowerCase().slice(0, 3)];
+      if (monthIdx !== undefined) {
+        const d = new Date(Number(textMonth[3]), monthIdx, Number(textMonth[1]));
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+    }
+    return null;
   };
   const parseGender = (text) => {
     const t = text.trim().toLowerCase();
