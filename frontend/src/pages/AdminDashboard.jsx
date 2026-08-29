@@ -661,14 +661,14 @@ export default function AdminDashboard() {
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "var(--navy-700)" }}><Stethoscope size={18} /></div>
                     <div>
-                      <div className="kpi-label">Total Doctors</div>
+                      <div className="kpi-label">Total Leaders</div>
                       <div className="kpi-value">{dashboardData.kpis.totalDoctors}</div>
                     </div>
                   </div>
                   <div className="kpi-card">
                     <div className="kpi-icon" style={{ background: "var(--green-600)" }}><UserCheck size={18} /></div>
                     <div>
-                      <div className="kpi-label">Active Doctors</div>
+                      <div className="kpi-label">Active Leaders</div>
                       <div className="kpi-value">{dashboardData.kpis.activeDoctors}</div>
                     </div>
                   </div>
@@ -790,7 +790,7 @@ export default function AdminDashboard() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <Award size={16} color="var(--teal-600)" />
-                        <h3 style={{ margin: 0 }}>Top-performing doctors</h3>
+                        <h3 style={{ margin: 0 }}>Top-performing Leaders</h3>
                       </div>
                       <PeriodToggle value={doctorsPeriod} onChange={setDoctorsPeriod} />
                     </div>
