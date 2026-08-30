@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE `Referral`
+  ADD COLUMN `idType` VARCHAR(191) NULL,
+  ADD COLUMN `idNumber` VARCHAR(191) NULL,
+  ADD COLUMN `forceType` VARCHAR(191) NULL,
+  ADD COLUMN `wardType` VARCHAR(191) NULL;

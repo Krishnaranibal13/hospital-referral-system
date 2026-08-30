@@ -164,9 +164,17 @@ function extractDob(text) {
   return anyDate ? anyDate[1] : null;
 }
 
+// Which line (by index) the DOB was actually found on — used by the Aadhaar name heuristic
+// below, since knowing *which line* matters more than just knowing a date was found somewhere.
+function findDobLineIndex(lines) {
+  let idx = lines.findIndex((l) => DOB_PATTERN.test(l));
+  if (idx === -1) idx = lines.findIndex((l) => ANY_DATE_PATTERN.test(l));
+  return idx;
+}
+
 // Words that show up in card boilerplate/labels — a candidate "name" line containing any of
 // these is almost certainly a label or scheme name, not a person.
-const NAME_EXCLUDE_WORDS = /\b(dob|dept|of|father|mother|spouse|wife|husband|son|daughter|male|female|gender|sex|echs|cghs|capf|bsf|crpf|cisf|itbp|ssb|nsg|ayushman|bharat|pmjay|pm-jay|abha|id|no|number|card|government|ministry|servicemen|central|armed|police|force|scheme|health|insurance|beneficiary|patient|name)\b/i;
+const NAME_EXCLUDE_WORDS = /\b(dob|dept|of|father|mother|spouse|wife|husband|son|daughter|male|female|gender|sex|echs|cghs|capf|bsf|crpf|cisf|itbp|ssb|nsg|ayushman|bharat|pmjay|pm-jay|abha|id|no|number|card|government|ministry|servicemen|central|armed|police|force|scheme|health|insurance|beneficiary|patient|name|issue|issued|date|valid|validity|expiry|expires|india)\b/i;
 
 // Extracts just the leading name-shaped portion of a line, rather than requiring the WHOLE
 // line to be clean — real cards routinely have noise trailing right after the name on the
@@ -222,13 +230,26 @@ function parseAadhaarText(rawText) {
   const genderMatch = text.match(GENDER_PATTERN);
   const aadhaarMatch = text.match(/\b(\d{4}\s?\d{4}\s?\d{4})\b/);
 
+  // Aadhaar cards don't label the name field at all, and are covered in Hindi text that OCR
+  // often garbles into Latin-letter noise which can accidentally *look* like a plausible name
+  // (right shape, wrong content — e.g. a real card once produced "HRE BROR" ahead of the
+  // actual name). The one layout detail that's held up across every real sample so far: the
+  // English name sits on the line immediately above the DOB line. That's a much stronger
+  // signal than "the first name-shaped line in the whole document", so it's tried first, and
+  // only falls back to the generic scan if the DOB line itself couldn't be located.
+  const dobLineIdx = findDobLineIndex(lines);
+  const nameNearDob = dobLineIdx > 0 ? extractLeadingName(lines[dobLineIdx - 1]) : null;
+  const patientName = nameNearDob || extractPersonName(text, lines);
+
   return {
     cardType: "AADHAAR",
-    patientName: extractPersonName(text, lines),
+    patientName,
     patientAge: ageFrom(dob, null),
     patientGender: genderMatch ? genderFromText(genderMatch[1]) : null,
     dob,
     idNumberMasked: maskAadhaarNumber(aadhaarMatch?.[1]),
+    forceType: null,
+    wardType: null,
     panel: PANEL_BY_CARD_TYPE.AADHAAR,
     confidence: "low",
   };
@@ -262,6 +283,43 @@ function extractLabelFreeId(cardType, text) {
 const CAPF_FORCE_PATTERN = /\b(BSF|CRPF|CISF|ITBP|SSB|NSG|AR)\b/i;
 const PMJAY_ID_PATTERN = /pm-?jay\s*id\s*[:\-]?\s*([A-Za-z0-9]{6,20})/i;
 
+// "Force type" means something different per card type, so this fills it in with whichever
+// is relevant and leaves it null otherwise: the paramilitary force itself for CAPF (from the
+// pattern above), the service branch for ECHS (a real sample card printed "ARMY" as a
+// standalone category line), or the beneficiary category for CGHS (a real sample printed
+// "Pensioner" right next to the beneficiary number) — CGHS doesn't have a "force" as such,
+// but this is the closest equivalent info actually printed on the card.
+const ECHS_FORCE_PATTERN = /\b(ARMY|NAVY|AIR FORCE|AF)\b/i;
+const CGHS_CATEGORY_PATTERN = /\b(pensioner|serving)\b/i;
+function extractForceType(cardType, text) {
+  if (cardType === "CAPF") {
+    const m = text.match(CAPF_FORCE_PATTERN);
+    return m ? m[1].toUpperCase() : null;
+  }
+  if (cardType === "ECHS") {
+    const m = text.match(ECHS_FORCE_PATTERN);
+    return m ? m[1].toUpperCase() : null;
+  }
+  if (cardType === "CGHS") {
+    const m = text.match(CGHS_CATEGORY_PATTERN);
+    return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : null;
+  }
+  return null;
+}
+
+// Ward entitlement (General / Semi-Private / Private) — seen labeled in Hindi+English on a
+// real CGHS card ("सेमी-प्राइवेट वार्ड / Semi-Private Ward"). Checked for all panel card types
+// since ECHS/CAPF may print the same style of entitlement even though no sample confirmed it.
+const WARD_TYPE_PATTERN = /\b(general|semi-?private|private)\s*ward\b/i;
+function extractWardType(text) {
+  const m = text.match(WARD_TYPE_PATTERN);
+  if (!m) return null;
+  const kind = m[1].toLowerCase().replace(/[\s-]+/g, "");
+  if (kind === "general") return "General Ward";
+  if (kind === "private") return "Private Ward";
+  return "Semi-Private Ward";
+}
+
 function extractCapfId(lines) {
   const forceLineIdx = lines.findIndex((l) => CAPF_FORCE_PATTERN.test(l));
   if (forceLineIdx === -1) return null;
@@ -280,13 +338,16 @@ function parseLabeledCardText(cardType, rawText) {
   const dob = extractDob(text);
   const age = ageMatch ? parseInt(ageMatch[1], 10) : ageFrom(dob, null);
 
-  const idNumber =
-    cardType === "CAPF"
-      ? extractCapfId(lines)
-      : text.match(ID_LABEL_PATTERNS[cardType])?.[1]?.trim() || extractLabelFreeId(cardType, text);
   const pmjayMatch = text.match(PMJAY_ID_PATTERN);
   // A CAPF card that also carries its own PM-JAY ID is the "AYUSHMAN CAPF" scheme
-  // specifically, not plain CAPF — matches the distinct entry in the app's panel list.
+  // specifically, not plain CAPF — matches the distinct entry in the app's panel list. On
+  // that combined card, the PM-JAY ID is what's actually used for Ayushman claims, so it
+  // takes priority over the plain BSF/CRPF/etc. service number as the card number shown —
+  // the force ID is still captured separately via forceType below, just not as "the" number.
+  const idNumber =
+    cardType === "CAPF"
+      ? pmjayMatch?.[1] || extractCapfId(lines)
+      : text.match(ID_LABEL_PATTERNS[cardType])?.[1]?.trim() || extractLabelFreeId(cardType, text);
   const panel = cardType === "CAPF" && pmjayMatch ? "AYUSHMAN CAPF" : PANEL_BY_CARD_TYPE[cardType];
 
   return {
@@ -297,6 +358,8 @@ function parseLabeledCardText(cardType, rawText) {
     dob,
     // None of these card numbers are UIDAI-regulated the way Aadhaar is, so no masking here.
     idNumberMasked: idNumber || null,
+    forceType: extractForceType(cardType, text),
+    wardType: extractWardType(text),
     panel,
     confidence: "low",
   };
@@ -321,12 +384,12 @@ export async function extractFromCardImage({ buffer, filename, mimetype, cardTyp
   const rawText = await callOcrSpace(buffer, filename, mimetype);
   const result = cardType === "AADHAAR" ? parseAadhaarText(rawText) : parseLabeledCardText(cardType, rawText);
 
-  // Nothing usable was pulled out — print what OCR.space actually read so the raw text (and
-  // therefore what the regex patterns need to match) is visible in the server logs. Search
-  // for "[OCR DEBUG]" with `pm2 logs` or `journalctl` to find these.
-  if (!result.patientName && !result.idNumberMasked) {
-    console.log(`[OCR DEBUG] ${cardType} — no fields matched. Raw text was:\n${rawText || "(empty)"}`);
-  }
+  // Always print what OCR.space actually read, alongside what we extracted from it — not
+  // just on a total miss. A WRONG extraction (picked up junk text instead of the real name,
+  // like "sue Dale" off an Aadhaar card) doesn't trip the old "nothing matched" condition
+  // this used to check, but it's just as important to be able to debug. Search for
+  // "[OCR DEBUG]" with `pm2 logs` or `journalctl` to find these.
+  console.log(`[OCR DEBUG] ${cardType} — extracted:`, result, `\nRaw text was:\n${rawText || "(empty)"}`);
 
   return result;
 }

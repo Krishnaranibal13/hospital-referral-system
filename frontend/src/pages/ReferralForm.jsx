@@ -10,6 +10,10 @@ export default function ReferralForm() {
   const [gender, setGender] = useState("");
   const [phone, setPhone] = useState("");
   const [panel, setPanel] = useState("");
+  const [idType, setIdType] = useState("");
+  const [idNumber, setIdNumber] = useState("");
+  const [forceType, setForceType] = useState("");
+  const [wardType, setWardType] = useState("");
   const [locationStatus, setLocationStatus] = useState("idle"); // idle | requesting | granted | denied
   const [coords, setCoords] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -58,6 +62,10 @@ export default function ReferralForm() {
     if (result.patientAge) setAge(String(result.patientAge));
     if (result.patientGender) setGender(result.patientGender);
     if (result.panel) setPanel(result.panel);
+    setIdType(result.cardType || "");
+    setIdNumber(result.idNumberMasked || "");
+    setForceType(result.forceType || "");
+    setWardType(result.wardType || "");
     const cardLabel = CARD_LABELS[result.cardType] || result.cardType;
     const missing = [!result.patientName && "name", !result.patientAge && "age", !result.patientGender && "gender"].filter(Boolean);
     const panelNote = result.panel ? ` Panel set to ${result.panel}.` : "";
@@ -80,6 +88,10 @@ export default function ReferralForm() {
         patientGender: gender,
         patientPhone: phone || undefined,
         panel: panel || undefined,
+        idType: idType || undefined,
+        idNumber: idNumber.trim() || undefined,
+        forceType: forceType.trim() || undefined,
+        wardType: wardType.trim() || undefined,
         scanLatitude: coords?.lat,
         scanLongitude: coords?.lon,
         scanAccuracyM: coords?.accuracy,
@@ -172,6 +184,29 @@ export default function ReferralForm() {
 
             <label>Patient phone (optional)</label>
             <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+
+            {idType === "AADHAAR" && (
+              <>
+                <label>Aadhaar number</label>
+                <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
+              </>
+            )}
+            {idType === "AYUSHMAN" && (
+              <>
+                <label>Ayushman number</label>
+                <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
+              </>
+            )}
+            {(idType === "CGHS" || idType === "ECHS" || idType === "CAPF") && (
+              <>
+                <label>Force / category</label>
+                <input value={forceType} onChange={(e) => setForceType(e.target.value)} />
+                <label>Ward type</label>
+                <input value={wardType} onChange={(e) => setWardType(e.target.value)} />
+                <label>Card number</label>
+                <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
+              </>
+            )}
 
             {error && <p className="error">{error}</p>}
 

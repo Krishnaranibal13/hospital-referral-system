@@ -86,6 +86,10 @@ export default function AddPatientModal({ onClose, onAdded }) {
   const [patientGender, setPatientGender] = useState("MALE");
   const [patientPhone, setPatientPhone] = useState("");
   const [patientPanel, setPatientPanel] = useState("");
+  const [idType, setIdType] = useState("");
+  const [idNumber, setIdNumber] = useState("");
+  const [forceType, setForceType] = useState("");
+  const [wardType, setWardType] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [scanNote, setScanNote] = useState("");
@@ -110,6 +114,10 @@ export default function AddPatientModal({ onClose, onAdded }) {
     if (result.patientAge) setPatientAge(String(result.patientAge));
     if (result.patientGender) setPatientGender(result.patientGender);
     if (result.panel) setPatientPanel(result.panel);
+    setIdType(result.cardType || "");
+    setIdNumber(result.idNumberMasked || "");
+    setForceType(result.forceType || "");
+    setWardType(result.wardType || "");
     const cardLabel = CARD_LABELS[result.cardType] || result.cardType;
     const missing = [!result.patientName && "name", !result.patientAge && "age", !result.patientGender && "gender"].filter(Boolean);
     setScanNote(
@@ -134,6 +142,10 @@ export default function AddPatientModal({ onClose, onAdded }) {
         patientGender,
         patientPhone: patientPhone.trim() || undefined,
         panel: patientPanel || undefined,
+        idType: idType || undefined,
+        idNumber: idNumber.trim() || undefined,
+        forceType: forceType.trim() || undefined,
+        wardType: wardType.trim() || undefined,
         ...(referrer.mode === "existing" ? { doctorId: referrer.doctorId } : { newLeaderName: referrer.newLeaderName }),
       };
       const { data } = await api.post("/referrals/manual", payload);
@@ -193,6 +205,29 @@ export default function AddPatientModal({ onClose, onAdded }) {
           <option value="">— None —</option>
           {PANEL_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
+
+        {idType === "AADHAAR" && (
+          <>
+            <label>Aadhaar number</label>
+            <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} placeholder="XXXX XXXX 1234" />
+          </>
+        )}
+        {idType === "AYUSHMAN" && (
+          <>
+            <label>Ayushman number</label>
+            <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
+          </>
+        )}
+        {(idType === "CGHS" || idType === "ECHS" || idType === "CAPF") && (
+          <>
+            <label>Force / category</label>
+            <input value={forceType} onChange={(e) => setForceType(e.target.value)} placeholder="e.g. BSF, ARMY, Pensioner" />
+            <label>Ward type</label>
+            <input value={wardType} onChange={(e) => setWardType(e.target.value)} placeholder="e.g. Semi-Private Ward" />
+            <label>Card number</label>
+            <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
+          </>
+        )}
 
         {error && <p className="error">{error}</p>}
 

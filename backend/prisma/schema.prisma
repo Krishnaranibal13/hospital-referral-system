@@ -196,6 +196,16 @@ model Referral {
   // usually once the file number is known. Free text so new panels don't need a code change.
   panel           String?
 
+  // Card details, usually filled in from an OCR card scan (see CardScanUpload on the
+  // frontend) but editable/enterable manually too. idNumber holds whichever number applies
+  // to idType — the masked Aadhaar number, the Ayushman/PM-JAY ID, or a CGHS/ECHS/CAPF card
+  // number. forceType and wardType only apply to CGHS/ECHS/CAPF cards (e.g. "BSF", "ARMY",
+  // "Semi-Private Ward") and are typically blank for Aadhaar/Ayushman.
+  idType          String?        // "AADHAAR" | "AYUSHMAN" | "CGHS" | "ECHS" | "CAPF", or null if not set
+  idNumber        String?
+  forceType       String?
+  wardType        String?
+
   // Set when this referral was created via the "All Referrals" bulk import (Excel upload),
   // so the whole batch can be reviewed and undone together later. Null for referrals created
   // any other way (QR scan, manual add), and for rows imported before this field existed.

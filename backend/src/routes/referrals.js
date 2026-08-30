@@ -28,6 +28,10 @@ const referralSchema = z.object({
   patientPhone: z.string().optional(),
   patientGender: z.enum(["MALE", "FEMALE", "OTHER"]),
   panel: z.string().optional(),
+  idType: z.string().optional(),
+  idNumber: z.string().optional(),
+  forceType: z.string().optional(),
+  wardType: z.string().optional(),
   scanLatitude: z.number().optional(),
   scanLongitude: z.number().optional(),
   scanAccuracyM: z.number().optional(),
@@ -86,7 +90,7 @@ router.post("/", publicLimiter, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { doctorCode, patientName, patientAge, patientPhone, patientGender, panel, scanLatitude, scanLongitude, scanAccuracyM } =
+  const { doctorCode, patientName, patientAge, patientPhone, patientGender, panel, idType, idNumber, forceType, wardType, scanLatitude, scanLongitude, scanAccuracyM } =
     parsed.data;
 
   const doctor = await prisma.doctor.findUnique({ where: { uniqueCode: doctorCode } });
@@ -107,6 +111,10 @@ router.post("/", publicLimiter, async (req, res) => {
       patientPhone,
       patientGender,
       panel: panel || null,
+      idType: idType || null,
+      idNumber: idNumber || null,
+      forceType: forceType || null,
+      wardType: wardType || null,
       scanLatitude,
       scanLongitude,
       scanAccuracyM,
@@ -136,6 +144,10 @@ const manualReferralSchema = z.object({
   patientPhone: z.string().optional(),
   patientGender: z.enum(["MALE", "FEMALE", "OTHER"]),
   panel: z.string().optional(),
+  idType: z.string().optional(),
+  idNumber: z.string().optional(),
+  forceType: z.string().optional(),
+  wardType: z.string().optional(),
 }).refine((data) => Boolean(data.doctorId) !== Boolean(data.newLeaderName), {
   message: "Provide either an existing leader (doctorId) or a new leader's name, not both or neither",
 });
@@ -152,7 +164,7 @@ router.post("/manual", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANA
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { doctorId, newLeaderName, patientName, patientAge, patientPhone, patientGender, panel } = parsed.data;
+  const { doctorId, newLeaderName, patientName, patientAge, patientPhone, patientGender, panel, idType, idNumber, forceType, wardType } = parsed.data;
 
   let doctor;
   let newLeaderCreated = false;
@@ -167,7 +179,11 @@ router.post("/manual", requireAuth, requireAccess(["ADMIN", "RECEPTION"], ["MANA
   }
 
   const referral = await prisma.referral.create({
-    data: { doctorId: doctor.id, patientName, patientAge, patientPhone, patientGender, panel: panel || null },
+    data: {
+      doctorId: doctor.id, patientName, patientAge, patientPhone, patientGender,
+      panel: panel || null, idType: idType || null, idNumber: idNumber || null,
+      forceType: forceType || null, wardType: wardType || null,
+    },
   });
 
   if (newLeaderCreated) {
