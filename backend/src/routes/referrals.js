@@ -686,6 +686,10 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
     { header: "Resolved At", key: "arrivedAt", width: 20 },
     { header: "Discharged At", key: "dischargedAt", width: 20 },
     { header: "Panel", key: "panel", width: 26 },
+    { header: "ID Type", key: "idType", width: 12 },
+    { header: "ID Number", key: "idNumber", width: 20 },
+    { header: "Force / Category", key: "forceType", width: 18 },
+    { header: "Ward Type", key: "wardType", width: 18 },
   ];
   sheet.getRow(1).font = { bold: true };
 
@@ -706,6 +710,10 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
       arrivedAt: r.arrivedAt ? formatDateTime(r.arrivedAt) : "",
       dischargedAt: r.dischargedAt ? formatDateTime(r.dischargedAt) : "",
       panel: r.panel || "",
+      idType: r.idType || "",
+      idNumber: r.idNumber || "",
+      forceType: r.forceType || "",
+      wardType: r.wardType || "",
     });
   }
 
@@ -716,6 +724,7 @@ router.get("/export/excel", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPOR
 });
 
 // GET /api/referrals/export/pdf  (admin) — same filters, proper column-aligned table
+const PDF_ID_TYPE_LABELS = { AADHAAR: "Aadhaar", AYUSHMAN: "Ayushman", CGHS: "CGHS", ECHS: "ECHS", CAPF: "CAPF" };
 router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS"]), async (req, res) => {
   const referrals = await prisma.referral.findMany({
     where: buildWhere(req),
@@ -736,15 +745,16 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
   // enough to fit without crowding the patient/location columns.
   const columns = [
     { key: "num", label: "#", width: 22 },
-    { key: "patient", label: "Patient", width: 100 },
-    { key: "fileNumber", label: "File No.", width: 70 },
-    { key: "gender", label: "Gender", width: 50 },
-    { key: "age", label: "Age", width: 30 },
-    { key: "status", label: "Status", width: 60 },
-    { key: "visitType", label: "Visit", width: 40 },
-    { key: "credit", label: "Credit", width: 55 },
-    { key: "date", label: "Date", width: 50 },
-    { key: "location", label: "Location", width: 200 },
+    { key: "patient", label: "Patient", width: 95 },
+    { key: "fileNumber", label: "File No.", width: 65 },
+    { key: "gender", label: "Gender", width: 45 },
+    { key: "age", label: "Age", width: 28 },
+    { key: "status", label: "Status", width: 55 },
+    { key: "visitType", label: "Visit", width: 38 },
+    { key: "credit", label: "Credit", width: 52 },
+    { key: "date", label: "Date", width: 48 },
+    { key: "idCard", label: "ID / Card", width: 130 },
+    { key: "location", label: "Location", width: 160 },
   ];
   const tableWidth = columns.reduce((s, c) => s + c.width, 0);
 
@@ -779,9 +789,14 @@ router.get("/export/pdf", requireAuth, requireAccess(["ADMIN"], ["EXPORT_REPORTS
     itemNumber += 1;
     const credit = r.transaction ? `${Number(r.transaction.amount).toFixed(2)} pts` : "-";
     let location = r.scanAddress || (r.scanLatitude != null ? `${r.scanLatitude.toFixed(4)}, ${r.scanLongitude.toFixed(4)}` : "Not shared");
-    if (location.length > 55) location = location.slice(0, 52) + "...";
+    if (location.length > 40) location = location.slice(0, 37) + "...";
+    let idCard = "-";
+    if (r.idType) {
+      idCard = `${PDF_ID_TYPE_LABELS[r.idType] || r.idType}${r.idNumber ? `: ${r.idNumber}` : ""}`;
+      if (idCard.length > 28) idCard = idCard.slice(0, 25) + "...";
+    }
 
-    const rowValues = [itemNumber, r.patientName, r.fileNumber || "-", r.patientGender || "-", r.patientAge, r.status, r.visitType || "-", credit, formatDate(r.createdAt), location];
+    const rowValues = [itemNumber, r.patientName, r.fileNumber || "-", r.patientGender || "-", r.patientAge, r.status, r.visitType || "-", credit, formatDate(r.createdAt), idCard, location];
     let x = startX;
     doc.fontSize(9);
     columns.forEach((c, i) => { doc.text(String(rowValues[i]), x, y, { width: c.width }); x += c.width; });

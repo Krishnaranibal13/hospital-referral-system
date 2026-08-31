@@ -56,6 +56,7 @@ const DOCTORS_PAGE_SIZE = 8;
 const REFERRALS_PAGE_SIZE = 50;
 
 const DASHBOARD_PERIODS = [["week", "7D"], ["month", "30D"], ["3months", "3M"], ["6months", "6M"], ["year", "1Y"]];
+const ID_TYPE_LABELS = { AADHAAR: "Aadhaar", AYUSHMAN: "Ayushman", CGHS: "CGHS", ECHS: "ECHS", CAPF: "CAPF" };
 
 // Small pill-style period switcher shared by the Top Doctors / Top Marketing Emp / Pending
 // Redemptions dashboard cards.
@@ -1424,7 +1425,7 @@ export default function AdminDashboard() {
               <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Through</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>Location</th><th>Submitted</th><th></th></tr>
+                  <tr><th>Patient</th><th>File No.</th><th>Age</th><th>Gender</th><th>Phone</th><th>Referred by</th><th>Through</th><th>Status</th><th>Visit</th><th>Credit</th><th>Payout</th><th>Discharged</th><th>Panel</th><th>ID / Card</th><th>Location</th><th>Submitted</th><th></th></tr>
                 </thead>
                 <tbody>
                   {referrals.map((r) => (
@@ -1456,6 +1457,20 @@ export default function AdminDashboard() {
                             <option key={p} value={p}>{p}</option>
                           ))}
                         </select>
+                      </td>
+                      <td>
+                        {r.idType ? (
+                          <div style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>
+                            <div style={{ fontWeight: 600 }}>
+                              {ID_TYPE_LABELS[r.idType] || r.idType}{r.idNumber ? `: ${r.idNumber}` : ""}
+                            </div>
+                            {(r.forceType || r.wardType) && (
+                              <div style={{ color: "var(--ink-soft)" }}>
+                                {[r.forceType, r.wardType].filter(Boolean).join(" · ")}
+                              </div>
+                            )}
+                          </div>
+                        ) : "—"}
                       </td>
                       <td>
                         {r.scanLatitude != null ? (
