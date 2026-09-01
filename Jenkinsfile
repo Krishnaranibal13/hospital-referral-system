@@ -24,6 +24,10 @@ pipeline {
                     sh '''
                         printf "%s\\n" "$HOSPITAL_ENV" > .env
                         chmod 600 .env
+
+                        echo "Environment file created."
+                        echo "Variables present:"
+                        grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env | cut -d= -f1
                     '''
                 }
             }
@@ -32,7 +36,7 @@ pipeline {
         stage('Build Images') {
             steps {
                 sh '''
-                    docker compose build
+                    docker compose --env-file .env build
                 '''
             }
         }
@@ -40,7 +44,7 @@ pipeline {
         stage('Prisma Generate') {
             steps {
                 sh '''
-                    docker compose run --rm backend npx prisma generate
+                    docker compose --env-file .env run --rm backend npx prisma generate
                 '''
             }
         }
@@ -48,7 +52,7 @@ pipeline {
         stage('Database Migration') {
             steps {
                 sh '''
-                    docker compose run --rm backend npx prisma migrate deploy
+                    docker compose --env-file .env run --rm backend npx prisma migrate deploy
                 '''
             }
         }
@@ -56,7 +60,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 sh '''
-                    docker compose up -d
+                    docker compose --env-file .env up -d
                 '''
             }
         }
@@ -65,7 +69,7 @@ pipeline {
             steps {
                 sh '''
                     sleep 10
-                    docker compose ps
+                    docker compose --env-file .env ps
                 '''
             }
         }
@@ -73,7 +77,7 @@ pipeline {
         stage('Backend Logs') {
             steps {
                 sh '''
-                    docker compose logs backend --tail=30
+                    docker compose --env-file .env logs backend --tail=30
                 '''
             }
         }
@@ -95,3 +99,5 @@ pipeline {
         }
     }
 }
+
+
