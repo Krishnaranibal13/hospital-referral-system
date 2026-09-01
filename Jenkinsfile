@@ -9,21 +9,31 @@ pipeline {
             }
         }
 
-        stage('Create .env') {
-            steps {
-                withCredentials([
-                    string(
-                        credentialsId: 'hospital-env',
-                        variable: 'HOSPITAL_ENV'
-                    )
-                ]) {
-                    sh '''
-                        echo "$HOSPITAL_ENV" > .env
-                        chmod 600 .env
-                    '''
-                }
-            }
+     stage('Create .env') {
+        steps {
+           withCredentials([
+               string(
+                  credentialsId: 'hospital-env',
+                  variable: 'HOSPITAL_ENV'
+            )
+        ]) {
+            sh '''
+                printf '%s\\n' "$HOSPITAL_ENV" > .env
+                chmod 600 .env
+
+                echo "Checking environment variables..."
+
+                grep '^MYSQL_DATABASE=' .env | sed 's/=.*/=****/'
+                grep '^DATABASE_URL=' .env | sed 's/=.*/=****/'
+                grep '^JWT_SECRET=' .env | sed 's/=.*/=****/'
+                grep '^PORT=' .env | sed 's/=.*/=****/'
+                grep '^NODE_ENV=' .env | sed 's/=.*/=****/'
+                grep '^ALLOWED_ORIGINS=' .env | sed 's/=.*/=****/'
+                grep '^VITE_API_URL=' .env | sed 's/=.*/=****/'
+            '''
         }
+    }
+}    
 
         stage('Build') {
             steps {
