@@ -31,8 +31,7 @@ pipeline {
         stage('Migrate Database') {
             steps {
                 sh '''
-                    docker compose --env-file .env run --rm \
-                    --env-file .env backend \
+                    docker compose --env-file .env run --rm backend\
                     npx prisma migrate deploy
                 '''
             }
