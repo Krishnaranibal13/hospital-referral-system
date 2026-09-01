@@ -12,13 +12,19 @@ pipeline {
                         variable: 'HOSPITAL_ENV'
                     )
                 ]) {
-                    sh '''
-                        printf "%s\\n" "$HOSPITAL_ENV" > .env
-                        chmod 600 .env
-                    '''
-                }
-            }
+                   sh '''
+                       printf "%s\\n" "$HOSPITAL_ENV" > .env
+                       chmod 600 .env
+             
+                       echo "Number of lines in .env:"
+                       wc -l .env
+
+                       echo "Variable names found:"
+                       cut -d= -f1 .env
+                   '''
         }
+    }
+}
 
         stage('Build') {
             steps {
