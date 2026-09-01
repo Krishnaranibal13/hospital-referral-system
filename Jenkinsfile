@@ -1,4 +1,4 @@
-
+```groovy
 pipeline {
     agent any
 
@@ -6,25 +6,17 @@ pipeline {
 
         stage('Create .env') {
             steps {
-                withCredentials([
-                    string(
-                        credentialsId: 'hospital-env',
-                        variable: 'HOSPITAL_ENV'
-                    )
-                ]) {
-                   sh '''
-                       printf "%s\\n" "$HOSPITAL_ENV" > .env
-                       chmod 600 .env
-             
-                       echo "Number of lines in .env:"
-                       wc -l .env
+                sh '''
+                    echo "Copying .env file..."
 
-                       echo "Variable names found:"
-                       cut -d= -f1 .env
-                   '''
+                    sudo cp /home/ubuntu/hospital-referral-system/.env .env
+                    sudo chown jenkins:jenkins .env
+                    chmod 600 .env
+
+                    echo ".env created successfully"
+                '''
+            }
         }
-    }
-}
 
         stage('Build') {
             steps {
@@ -37,7 +29,7 @@ pipeline {
         stage('Migrate Database') {
             steps {
                 sh '''
-                    docker compose --env-file .env run --rm backend\
+                    docker compose --env-file .env run --rm backend \
                     npx prisma migrate deploy
                 '''
             }
@@ -75,9 +67,5 @@ pipeline {
         }
     }
 }
-
-
-
-
-
+```
 
