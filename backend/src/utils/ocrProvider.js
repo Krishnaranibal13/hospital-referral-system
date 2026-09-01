@@ -257,8 +257,12 @@ function parseAadhaarText(rawText) {
 
 // Ayushman Bharat (PM-JAY), CGHS, and ECHS cards generally do label their ID field, even if
 // they don't always label the name (see extractPersonName above for the fallback chain).
+// The AYUSHMAN pattern requires "no"/"number" after "card" rather than treating it as
+// optional — a real card's official scheme name printed at the bottom ("AYUSHMAN BHARAT
+// PRADHAN MANTRI JAN AROGYA YOJANA") otherwise gets matched as if "Ayushman Bharat" itself
+// were a label, grabbing the next word ("PRADHAN") as if it were the ID.
 const ID_LABEL_PATTERNS = {
-  AYUSHMAN: /(?:pmjay\s*id|pm-?jay\s*id|ayushman\s*(?:bharat)?\s*(?:card\s*)?(?:no\.?|number)?)\s*[:\-]?\s*([A-Za-z0-9\-/]{6,25})/i,
+  AYUSHMAN: /(?:pmjay\s*id|pm-?jay\s*id|ayushman\s*(?:bharat)?\s*card\s*(?:no\.?|number))\s*[:\-]?\s*([A-Za-z0-9\-/]{6,25})/i,
   CGHS: /(?:cghs\s*(?:card\s*)?(?:no\.?|number|id)|beneficiary\s*no\.?)\s*[:\-]?\s*([A-Za-z0-9\-/]{4,20})/i,
   ECHS: /(?:echs\s*(?:card\s*)?(?:no\.?|number|id))\s*[:\-]?\s*([A-Za-z0-9\-/]{4,20})/i,
 };
@@ -277,11 +281,29 @@ function extractLabelFreeId(cardType, text) {
   return null;
 }
 
+// A label and its value can end up several lines apart on multi-column/scrambled cards (same
+// root cause as the DOB/CAPF fixes above) — this scans a few lines after wherever a label
+// pattern was found for the first line that's just a compact alphanumeric token, skipping
+// over other labeled fields (which have colons/spaces/words) in between. Used for Ayushman's
+// PM-JAY ID, which was found 2 lines away from its own label on a real sample card.
+function findValueNearLabel(lines, labelPattern, maxLinesAhead = 4) {
+  const idx = lines.findIndex((l) => labelPattern.test(l));
+  if (idx === -1) return null;
+  for (let i = idx + 1; i < Math.min(idx + 1 + maxLinesAhead, lines.length); i++) {
+    const candidate = lines[i].trim();
+    if (/^[A-Za-z0-9]{6,15}$/.test(candidate)) return candidate;
+  }
+  return null;
+}
+
 // A real BSF card had no "CAPF ID:" style label at all — just the force's short name (BSF/
 // CRPF/etc.) followed by an ID with no label in between. This also carried its own PM-JAY ID,
 // meaning it was actually an Ayushman-linked CAPF card — see the panel upgrade below.
 const CAPF_FORCE_PATTERN = /\b(BSF|CRPF|CISF|ITBP|SSB|NSG|AR)\b/i;
 const PMJAY_ID_PATTERN = /pm-?jay\s*id\s*[:\-]?\s*([A-Za-z0-9]{6,20})/i;
+// Looser than PMJAY_ID_PATTERN above — just finds the label LINE, without requiring the value
+// to be adjacent to it, for use with findValueNearLabel's forward-scan.
+const PMJAY_ID_LINE_PATTERN = /pm-?jay\s*id/i;
 
 // "Force type" means something different per card type, so this fills it in with whichever
 // is relevant and leaves it null otherwise: the paramilitary force itself for CAPF (from the
@@ -334,9 +356,12 @@ function parseLabeledCardText(cardType, rawText) {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
 
   const ageMatch = text.match(/age\s*[:\-]?\s*(\d{1,3})/i);
+  // Ayushman cards print "YOB: 1976" (Year of Birth) rather than a full DOB — ageFrom already
+  // supports computing from just a year, this just needed to actually be extracted and passed.
+  const yobMatch = text.match(/\bYOB\s*[:\-]?\s*(\d{4})\b/i);
   const genderMatch = text.match(/(?:gender|sex)\s*[:\-]?\s*(male|female|other|m|f)\b/i) || text.match(GENDER_PATTERN);
   const dob = extractDob(text);
-  const age = ageMatch ? parseInt(ageMatch[1], 10) : ageFrom(dob, null);
+  const age = ageMatch ? parseInt(ageMatch[1], 10) : ageFrom(dob, yobMatch?.[1]);
 
   const pmjayMatch = text.match(PMJAY_ID_PATTERN);
   // A CAPF card that also carries its own PM-JAY ID is the "AYUSHMAN CAPF" scheme
@@ -347,6 +372,8 @@ function parseLabeledCardText(cardType, rawText) {
   const idNumber =
     cardType === "CAPF"
       ? pmjayMatch?.[1] || extractCapfId(lines)
+      : cardType === "AYUSHMAN"
+      ? text.match(ID_LABEL_PATTERNS.AYUSHMAN)?.[1]?.trim() || findValueNearLabel(lines, PMJAY_ID_LINE_PATTERN)
       : text.match(ID_LABEL_PATTERNS[cardType])?.[1]?.trim() || extractLabelFreeId(cardType, text);
   const panel = cardType === "CAPF" && pmjayMatch ? "AYUSHMAN CAPF" : PANEL_BY_CARD_TYPE[cardType];
 
