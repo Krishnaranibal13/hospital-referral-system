@@ -9,8 +9,7 @@ pipeline {
                 sh '''
                     echo "Copying .env file..."
 
-                    sudo cp /home/ubuntu/hospital-referral-system/.env .env
-                    sudo chown jenkins:jenkins .env
+                    cp /home/ubuntu/hospital-referral-system/.env .env
                     chmod 600 .env
 
                     echo ".env created successfully"
